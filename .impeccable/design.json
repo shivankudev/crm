@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-26T01:00:00Z",
+  "title": "Design System: Gatti E-Rickshaw CRM",
+  "extensions": {
+    "colorMeta": {
+      "brand-600": { "role": "primary", "displayName": "Accent Blue", "canonical": "#2563eb" },
+      "slate-50": { "role": "neutral", "displayName": "Page Ground", "canonical": "#f8fafc" },
+      "chip-pos": { "role": "tertiary", "displayName": "Won / On-Track Green", "canonical": "#16a34a" },
+      "chip-neg": { "role": "tertiary", "displayName": "Lost / Out Red", "canonical": "#dc2626" },
+      "chip-mute": { "role": "tertiary", "displayName": "Terminal Gray", "canonical": "#64748b" }
+    },
+    "typographyMeta": {
+      "tabular": { "displayName": "Tabular Data", "purpose": "Codes, phone numbers, and counts — never prose." },
+      "stat": { "displayName": "Scoreboard Stat", "purpose": "The one large-number style for every StatCard/StatRail figure across the app." },
+      "label": { "displayName": "Eyebrow Label", "purpose": "11px uppercase tracked section labels (sidebar headers, stat labels); also used plain for the smallest captions." }
+    },
+    "shadows": [
+      { "name": "card-ambient", "value": "0 1px 2px rgba(15,23,42,0.04)", "purpose": "Low separation for white cards against the slate-50 page ground." }
+    ],
+    "motion": [],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Solid blue fill, white text — the app's one accent color.",
+      "html": "<button class=\"ds-btn-primary\">Start calling</button>",
+      "css": ".ds-btn-primary { background: #2563eb; color: #ffffff; font-weight: 500; padding: 8px 14px; border-radius: 8px; border: none; box-shadow: 0 1px 2px rgba(15,23,42,0.06); transition: background 0.15s; } .ds-btn-primary:hover { background: #1d4ed8; } .ds-btn-primary:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Pill — Live",
+      "kind": "chip",
+      "refersTo": "chip-live",
+      "description": "Any non-terminal lifecycle status — soft blue tint pill.",
+      "html": "<span class=\"ds-chip ds-chip-live\">Contacted</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; border-radius: 9999px; padding: 3px 10px; font-size: 12px; font-weight: 500; } .ds-chip-live { background: #eff6ff; color: #1d4ed8; }"
+    },
+    {
+      "name": "Status Pill — Won",
+      "kind": "chip",
+      "refersTo": "chip-pos",
+      "description": "Terminal positive outcome.",
+      "html": "<span class=\"ds-chip ds-chip-pos\">Won</span>",
+      "css": ".ds-chip-pos { display: inline-flex; align-items: center; border-radius: 9999px; padding: 3px 10px; font-size: 12px; font-weight: 500; background: #f0fdf4; color: #166534; }"
+    },
+    {
+      "name": "Status Pill — Lost",
+      "kind": "chip",
+      "refersTo": "chip-neg",
+      "description": "Terminal negative outcome.",
+      "html": "<span class=\"ds-chip ds-chip-neg\">Lost</span>",
+      "css": ".ds-chip-neg { display: inline-flex; align-items: center; border-radius: 9999px; padding: 3px 10px; font-size: 12px; font-weight: 500; background: #fef2f2; color: #991b1b; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Standard white container on the slate-50 page ground.",
+      "html": "<div class=\"ds-card\">Content</div>",
+      "css": ".ds-card { background: #ffffff; border: 1px solid rgba(226,232,240,0.8); border-radius: 12px; box-shadow: 0 1px 2px rgba(15,23,42,0.04); padding: 20px; }"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Active state is a tinted background plus accent text — the standard SaaS nav pattern, no colored shell or marker bar.",
+      "html": "<a class=\"ds-nav-item ds-nav-item-active\">Dashboard</a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: #475569; } .ds-nav-item-active { color: #1d4ed8; background: #eff6ff; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Familiar Admin",
+    "overview": "A deliberately conventional light SaaS admin look, chosen after an earlier dark-shell 'scorecard' direction was rejected as poor-looking. White content on a soft gray ground, one restrained blue accent, and standard soft-tint status pills — the visual language most CRM/ops tools already use, executed with care rather than novelty.",
+    "keyCharacteristics": [
+      "White sidebar/topbar/cards on a soft gray page background",
+      "One blue accent (brand-600), used only for primary actions, active nav, links, and focus rings",
+      "Soft-tint rounded-full status pills, not solid blocks",
+      "Standard 8-12px corner radii; pills stay fully rounded",
+      "Tabular IBM Plex Mono reserved for codes, phone numbers, and counts only"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Blue is the only accent color used for interactive/primary meaning; a second competing accent color is a regression to the rejected direction.", "section": "colors" },
+      { "name": "The Soft Pill Rule", "body": "Every status/lifecycle badge is a light-tint background with same-hue darker text, fully rounded — never a solid block.", "section": "colors" }
+    ],
+    "dos": [
+      "Do keep the sidebar and topbar white with a hairline border.",
+      "Do use brand-600/brand-700 as the only accent, always paired with white text on solid fills.",
+      "Do use soft-tint rounded-full pills for every status badge.",
+      "Do keep IBM Plex Mono to codes, phone numbers, and counts."
+    ],
+    "donts": [
+      "Don't reintroduce a dark or colored sidebar/topbar shell.",
+      "Don't use a solid, high-contrast block for a status badge.",
+      "Don't introduce a second accent color competing with blue.",
+      "Don't put dark text on the accent fill, or white text on a light accent tint."
+    ]
+  }
+}

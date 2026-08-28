@@ -1,0 +1,678 @@
+// ============================================================
+// Gatti E-Rickshaw CRM — Prisma Schema (PostgreSQL)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------
+// USERS / ROLES / PERMISSIONS
+// ---------------------------------------------------------------
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique // SUPER_ADMIN, ADMIN, SALES_MANAGER, TELECALLER
+  description String?
+  users       User[]
+  permissions RolePermission[]
+  createdAt   DateTime @default(now())
+}
+
+model Permission {
+  id    String @id @default(cuid())
+  key   String @unique // "leads.view_all", "dealers.approve", ...
+  label String
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  allowed      Boolean @default(true)
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model Team {
+  id       String @id @default(cuid())
+  name     String
+  managerId String?
+  manager  User?   @relation("TeamManager", fields: [managerId], references: [id])
+  members  User[]  @relation("TeamMembers")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  roleId       String
+  role         Role     @relation(fields: [roleId], references: [id])
+  teamId       String?
+  team         Team?    @relation("TeamMembers", fields: [teamId], references: [id])
+  managedTeams Team[]   @relation("TeamManager")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  leadsAssigned      Lead[]            @relation("LeadAssignedUser")
+  leadsCreated       Lead[]            @relation("LeadCreatedBy")
+  callActivities     CallActivity[]
+  followUpsAssigned  FollowUp[]        @relation("FollowUpAssignee")
+  notes              Note[]
+  tasksAssigned      Task[]            @relation("TaskAssignee")
+  dealerActivities   DealerActivity[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  sessions           Session[]
+  whatsappSession    WhatsAppSession?
+  whatsappTemplates  WhatsAppTemplate[]
+  whatsappMessages   WhatsAppMessageLog[]
+}
+
+// Not present in the original spec's ERD — required for secure,
+// revocable server-side session management (login/logout, session listing).
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------
+// GEOGRAPHY
+// ---------------------------------------------------------------
+
+model State {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  districts District[]
+  leads     Lead[]
+  dealers   Dealer[]
+}
+
+model District {
+  id      String  @id @default(cuid())
+  name    String
+  stateId String
+  state   State   @relation(fields: [stateId], references: [id])
+  cities  City[]
+  leads   Lead[]
+  dealers Dealer[]
+
+  @@unique([stateId, name])
+}
+
+model City {
+  id         String   @id @default(cuid())
+  name       String
+  districtId String
+  district   District @relation(fields: [districtId], references: [id])
+  leads      Lead[]
+  dealers    Dealer[]
+}
+
+// ---------------------------------------------------------------
+// CONFIGURABLE LOOKUPS (Settings-editable, not enums)
+// ---------------------------------------------------------------
+
+model LeadSource {
+  id     String @id @default(cuid())
+  name   String @unique
+  active Boolean @default(true)
+  leads  Lead[]
+}
+
+model LeadStatus {
+  id         String  @id @default(cuid())
+  name       String  @unique
+  sortOrder  Int     @default(0)
+  isTerminal Boolean @default(false)
+  active     Boolean @default(true)
+  leads      Lead[]
+}
+
+model ResultOption {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  active    Boolean    @default(true)
+  leads     Lead[]
+  followUps FollowUp[]
+}
+
+model LostReason {
+  id     String @id @default(cuid())
+  name   String @unique
+  active Boolean @default(true)
+  leads  Lead[]
+}
+
+model DealerStatus {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  dealers   Dealer[]
+}
+
+model FollowUpRule {
+  id              String  @id @default(cuid())
+  sequenceNumber  Int                     // 1,2,3,4...
+  daysAfterPrevious Int
+  defaultTime     String                  // "10:00"
+  enabled         Boolean @default(true)
+  appliesTo       String  @default("LEAD") // LEAD | DEALER | BOTH
+}
+
+// ---------------------------------------------------------------
+// LEADS
+// ---------------------------------------------------------------
+
+model Lead {
+  id              String   @id @default(cuid())
+  leadCode        String   @unique // human-readable e.g. GATTI-000123
+  name            String
+  phone           String
+  phoneNormalized String            // indexed, digits-only for dedupe/search
+  phone2          String?
+  whatsapp        String?
+  email           String?
+
+  address   String?
+  pincode   String?
+  stateId     String?
+  districtId  String?
+  cityId      String?
+  state       State?    @relation(fields: [stateId], references: [id])
+  district    District? @relation(fields: [districtId], references: [id])
+  city        City?     @relation(fields: [cityId], references: [id])
+
+  sourceId  String?
+  source    LeadSource? @relation(fields: [sourceId], references: [id])
+  statusId  String
+  status    LeadStatus  @relation(fields: [statusId], references: [id])
+  temperature String   @default("WARM") // HOT | WARM | COLD
+  priority    String   @default("MEDIUM") // LOW|MEDIUM|HIGH|URGENT
+
+  assignedUserId String?
+  assignedUser   User?   @relation("LeadAssignedUser", fields: [assignedUserId], references: [id])
+  createdById    String
+  createdBy      User    @relation("LeadCreatedBy", fields: [createdById], references: [id])
+
+  existingBusiness      String?
+  existingVehicleBrand  String?
+  interestedProduct     String?
+  expectedQuantity      Int?
+  investmentCapacity    String?
+  financingRequired     Boolean @default(false)
+  competitor            String?
+
+  resultId       String?
+  result         ResultOption? @relation(fields: [resultId], references: [id])
+  closedStatus   String  @default("OPEN") // OPEN | CLOSED_WON | CLOSED_LOST
+  lostReasonId   String?
+  lostReason     LostReason? @relation(fields: [lostReasonId], references: [id])
+  factoryVisitStatus String? // mirrors latest FactoryVisit.status for quick display
+
+  lastContactAt   DateTime?
+  nextFollowupAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime? // soft delete
+
+  followUps        FollowUp[]
+  callActivities   CallActivity[]
+  activities       LeadActivity[]
+  notes            Note[]
+  factoryVisits    FactoryVisit[]
+  attachments      Attachment[]
+  tasks            Task[]
+  whatsappMessages WhatsAppMessageLog[]
+
+  @@index([phoneNormalized])
+  @@index([statusId])
+  @@index([assignedUserId])
+  @@index([stateId, districtId])
+  @@index([nextFollowupAt])
+}
+
+model LeadActivity {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id])
+  type      String   // CREATED, ASSIGNED, STATUS_CHANGED, CALL, NOTE, FOLLOWUP_*, VISIT_*
+  fromValue String?
+  toValue   String?
+  meta      Json?
+  createdById String?
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+model CallActivity {
+  id           String   @id @default(cuid())
+  leadId       String
+  lead         Lead     @relation(fields: [leadId], references: [id])
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  phoneUsed    String
+  callStatus   String   // CONNECTED, NOT_CONNECTED, BUSY, SWITCHED_OFF, WRONG_NUMBER, CALL_BACK...
+  durationSecs Int?
+  notes        String?
+  nextFollowupAt DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+// ---------------------------------------------------------------
+// FOLLOW-UPS (shared: Lead OR Dealer — never fixed columns)
+// ---------------------------------------------------------------
+
+model FollowUp {
+  id              String    @id @default(cuid())
+  leadId          String?
+  lead            Lead?     @relation(fields: [leadId], references: [id])
+  dealerId        String?
+  dealer          Dealer?   @relation(fields: [dealerId], references: [id])
+
+  assignedUserId  String
+  assignedUser    User      @relation("FollowUpAssignee", fields: [assignedUserId], references: [id])
+
+  type            String    // CALL, MEETING, FACTORY_VISIT, DEALER_MEETING, TASK, OTHER
+  sequenceNumber  Int       @default(1)
+  scheduledDate   DateTime  @db.Date
+  scheduledTime   String    // "10:00"
+  status          String    @default("PENDING") // PENDING, COMPLETED, RESCHEDULED, CANCELLED, MISSED, OVERDUE
+
+  notes           String?
+  resultId        String?
+  result          ResultOption? @relation(fields: [resultId], references: [id])
+
+  completedAt     DateTime?
+  completedById   String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([scheduledDate, status])
+  @@index([leadId])
+  @@index([dealerId])
+  // Prisma has no @@check attribute — the "exactly one parent" constraint is
+  // added as raw SQL in the initial migration (see prisma/migrations).
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+  dealerId  String?
+  dealer    Dealer?  @relation(fields: [dealerId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model FactoryVisit {
+  id              String   @id @default(cuid())
+  leadId          String
+  lead            Lead     @relation(fields: [leadId], references: [id])
+  visitDate       DateTime
+  contactPerson   String?
+  numberOfVisitors Int?
+  status          String   @default("PLANNED") // PLANNED, CONFIRMED, COMPLETED, CANCELLED, RESCHEDULED, NO_SHOW
+  productDiscussed String?
+  notes           String?
+  result          String?
+  nextFollowupAt  DateTime?
+  createdAt       DateTime @default(now())
+
+  attachments Attachment[]
+}
+
+model Attachment {
+  id            String   @id @default(cuid())
+  leadId        String?
+  lead          Lead?    @relation(fields: [leadId], references: [id])
+  factoryVisitId String?
+  factoryVisit  FactoryVisit? @relation(fields: [factoryVisitId], references: [id])
+  dealerDocId   String?  // if attached via dealer document flow
+  fileUrl       String
+  fileName      String
+  mimeType      String?
+  uploadedAt    DateTime @default(now())
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  leadId      String?
+  lead        Lead?    @relation(fields: [leadId], references: [id])
+  dealerId    String?
+  dealer      Dealer?  @relation(fields: [dealerId], references: [id])
+  assignedUserId String
+  assignedUser   User  @relation("TaskAssignee", fields: [assignedUserId], references: [id])
+  priority    String   @default("MEDIUM")
+  dueDate     DateTime?
+  reminderAt  DateTime?
+  status      String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+// ---------------------------------------------------------------
+// DEALERS
+// ---------------------------------------------------------------
+
+model Dealer {
+  id              String   @id @default(cuid())
+  dealerCode      String?  @unique
+  dealerName      String
+  contactPerson   String?
+  phone           String
+  phoneNormalized String
+  altPhone        String?
+  whatsapp        String?
+  email           String?
+
+  stateId    String?
+  districtId String?
+  cityId     String?
+  state      State?    @relation(fields: [stateId], references: [id])
+  district   District? @relation(fields: [districtId], references: [id])
+  city       City?     @relation(fields: [cityId], references: [id])
+  address    String?
+  pincode    String?
+
+  gstin      String?
+  pan        String?
+
+  existingBusiness    String?
+  existingEvBrands    String?
+  investmentCapacity  String?
+
+  statusId   String
+  status     DealerStatus @relation(fields: [statusId], references: [id])
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  followUps  FollowUp[]
+  activities DealerActivity[]
+  documents  DealerDocument[]
+  notes      Note[]
+  tasks      Task[]
+  orders     Order[]
+
+  @@index([phoneNormalized])
+  @@index([gstin])
+  @@index([statusId])
+  @@index([stateId, districtId])
+}
+
+model DealerActivity {
+  id        String   @id @default(cuid())
+  dealerId  String
+  dealer    Dealer   @relation(fields: [dealerId], references: [id])
+  type      String
+  fromValue String?
+  toValue   String?
+  meta      Json?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([dealerId, createdAt])
+}
+
+model DealerDocument {
+  id         String   @id @default(cuid())
+  dealerId   String
+  dealer     Dealer   @relation(fields: [dealerId], references: [id])
+  docType    String   // PAN, GST, ID_PROOF, ADDRESS_PROOF, BANK_DETAILS, CANCELLED_CHEQUE, SHOP_PHOTO, AGREEMENT
+  fileUrl    String
+  fileName   String
+  uploadedAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------
+// PRODUCTS / ORDERS
+// ---------------------------------------------------------------
+
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  model       String?
+  category    String?
+  battery     String?
+  motor       String?
+  controller  String?
+  range       String?
+  payload     String?
+  price       Decimal @db.Decimal(12, 2)
+  gstPercent  Decimal @db.Decimal(5, 2) @default(0)
+  warranty    String?
+  active      Boolean @default(true)
+
+  orderItems  OrderItem[]
+}
+
+model Order {
+  id             String   @id @default(cuid())
+  orderCode      String   @unique
+  dealerId       String
+  dealer         Dealer   @relation(fields: [dealerId], references: [id])
+  paymentStatus  String   @default("PENDING")
+  deliveryStatus String   @default("DRAFT") // DRAFT, CONFIRMED, PROCESSING, DISPATCHED, DELIVERED, CANCELLED
+  totalAmount    Decimal  @db.Decimal(14, 2)
+  orderDate      DateTime @default(now())
+  createdById    String
+
+  items OrderItem[]
+}
+
+model OrderItem {
+  id         String  @id @default(cuid())
+  orderId    String
+  order      Order   @relation(fields: [orderId], references: [id])
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+  quantity   Int
+  unitPrice  Decimal @db.Decimal(12, 2)
+  discount   Decimal @db.Decimal(12, 2) @default(0)
+  gstAmount  Decimal @db.Decimal(12, 2) @default(0)
+  lineTotal  Decimal @db.Decimal(14, 2)
+}
+
+// ---------------------------------------------------------------
+// NOTIFICATIONS / AUDIT / SETTINGS
+// ---------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  body      String?
+  linkUrl   String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  action       String   // e.g. "STATUS_CHANGE", "REASSIGN", "PERMISSION_UPDATE"
+  entityType   String   // "Lead", "Dealer", "User", ...
+  entityId     String
+  previousValue Json?
+  newValue     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value Json
+}
+
+// ---------------------------------------------------------------
+// WHATSAPP (OpenWA gateway) — one linked device per telecaller, plus
+// their own fixed message templates per call outcome / cadence step.
+// ---------------------------------------------------------------
+
+// One row per user who has ever connected WhatsApp — 1:1, not a history
+// table. `status`/`phone` mirror OpenWA's own session record so the
+// dashboard widget can render from Postgres without a live round-trip
+// on every page load; refreshed whenever the CRM talks to OpenWA
+// (connect/logout/refresh-QR, or a lightweight poll).
+model WhatsAppSession {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id])
+  openwaSessionId String    @unique
+  status          String    @default("disconnected") // mirrors OpenWA's lowercase session status
+  phone           String?
+  lastSyncedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// A telecaller's fixed message for one trigger point. Two independent
+// axes, never combined into one row: triggerType "OUTCOME" keys on a
+// ResultOption name (fires the instant that call outcome is logged —
+// see logTelecallingOutcome), triggerType "CADENCE_STEP" keys on a
+// FollowUpRule.sequenceNumber as a string (fires when a telecaller's
+// call advances a lead onto that step — see scheduleNextFollowUpForLead).
+// Same text+media shape either way; media is optional on both.
+model WhatsAppTemplate {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  triggerType   String // "OUTCOME" | "CADENCE_STEP"
+  triggerKey    String // ResultOption.name, or a sequenceNumber as a string
+  text          String?
+  mediaKey      String? // storage.ts key — reused as-is (dealer docs' abstraction)
+  mediaFileName String?
+  mediaMimeType String?
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, triggerType, triggerKey])
+}
+
+/**
+ * One row per automated WhatsApp send ATTEMPT — the audit trail behind the
+ * dashboard's delivery panel.
+ *
+ * Sends are best-effort and deliberately swallowed (they must never break
+ * call logging), which without this table means a telecaller has no way to
+ * know a message silently never went out. Every attempt is recorded here,
+ * including the ones that were skipped because the device was unlinked.
+ *
+ * `status` mirrors OpenWA's own message lifecycle. Note its send response
+ * (201) explicitly does NOT mean delivered — there is no synchronous
+ * delivery confirmation on either engine — so SENT means "handed to
+ * WhatsApp", and DELIVERED/READ only arrive later as acks, resolved by
+ * refreshWhatsAppDeliveryStatuses() against waMessageId.
+ */
+model WhatsAppMessageLog {
+  id     String  @id @default(cuid())
+  userId String
+  user   User    @relation(fields: [userId], references: [id])
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id])
+
+  triggerType String // "OUTCOME" | "CADENCE_STEP"
+  triggerKey  String
+  phone       String
+  messageType String // text | image | video | document
+
+  /** OpenWA's engine-side message id; null when the send never reached WhatsApp. */
+  waMessageId String?
+  /** QUEUED | SENT | DELIVERED | READ | FAILED | SKIPPED_NOT_CONNECTED */
+  status      String
+  /** Human-readable reason on FAILED / SKIPPED_NOT_CONNECTED. */
+  error       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([waMessageId])
+}
+
+/**
+ * An admin-defined "send this now" button on the telecalling screen.
+ *
+ * Distinct from WhatsAppTemplate: templates fire automatically off a call
+ * outcome or cadence step, whereas these are pressed by the telecaller
+ * mid-conversation — "send her the brochure", "send the showroom pin". The
+ * point is that a caller never has to pick up their own phone and hunt for
+ * files while the lead is on the line.
+ *
+ * Also unlike a template, one button can carry MANY attachments (a set of
+ * product photos, say) plus a caption and an optional location pin, all
+ * dispatched in order from a single press.
+ *
+ * Global rather than per-telecaller: the business decides what can be sent
+ * under its name, and every caller gets the same buttons.
+ */
+model WhatsAppQuickAction {
+  id        String  @id @default(cuid())
+  label     String // what the caller sees on the button
+  text      String? // message body, or the caption when media is attached
+  sortOrder Int     @default(0)
+  enabled   Boolean @default(true)
+
+  // Optional location pin sent after any text/media.
+  latitude     Float?
+  longitude    Float?
+  locationName String?
+
+  media WhatsAppQuickActionMedia[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled, sortOrder])
+}
+
+/** One attachment on a quick-action button; several make up a set. */
+model WhatsAppQuickActionMedia {
+  id            String              @id @default(cuid())
+  quickActionId String
+  quickAction   WhatsAppQuickAction @relation(fields: [quickActionId], references: [id], onDelete: Cascade)
+  mediaKey      String // storage.ts key
+  fileName      String
+  mimeType      String
+  sortOrder     Int                 @default(0)
+
+  @@index([quickActionId, sortOrder])
+}

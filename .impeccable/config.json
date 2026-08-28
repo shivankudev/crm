@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font-size",
+        "value": "10px",
+        "createdAt": "2026-08-26T09:31:12.753Z",
+        "reason": "pre-existing kbd-shortcut hint size (⌘K/Esc badges in topbar + command palette), unchanged from the incumbent implementation; a legitimate micro-label size distinct from the documented body/label type ramp, not worth a new ramp step for two instances"
+      }
+    ]
+  }
+}

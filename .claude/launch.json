@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gatti-crm-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "openwa-gateway",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/shivankusehgal/Downloads/OpenWA && PORT= npx concurrently -n api,dashboard -c blue,green \"PORT=2785 npm run start:dev\" \"npm run dashboard:dev\""],
+      "port": 2886,
+      "url": "http://localhost:2886"
+    }
+  ]
+}

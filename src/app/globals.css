@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* DESIGN SYSTEM                                                        */
+/*                                                                      */
+/* A conventional, familiar light SaaS admin look, deliberately: white  */
+/* content on a soft neutral gray ground, one restrained blue accent    */
+/* for interactive/active state, standard soft-tint status pills. No    */
+/* invented visual "world" — this reads like the CRMs the team already  */
+/* knows (Linear, HubSpot, standard admin dashboards), executed with    */
+/* real care in spacing, hierarchy, and detail rather than novelty.     */
+/* See DESIGN.md.                                                       */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+
+  /* Brand accent — a single restrained blue, used for active nav,
+     primary actions, links, and focus rings. Never decorative. */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+
+  /* Status colors — standard soft-tint semantics, the vocabulary every
+     SaaS admin table already uses. */
+  --color-chip-pos: #16a34a;
+  --color-chip-neg: #dc2626;
+  --color-chip-live: var(--color-brand-600);
+  --color-chip-mute: #64748b;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-plex-mono);
+
+  --color-brand-50: var(--color-brand-50);
+  --color-brand-100: var(--color-brand-100);
+  --color-brand-200: var(--color-brand-200);
+  --color-brand-300: var(--color-brand-300);
+  --color-brand-400: var(--color-brand-400);
+  --color-brand-500: var(--color-brand-500);
+  --color-brand-600: var(--color-brand-600);
+  --color-brand-700: var(--color-brand-700);
+  --color-brand-800: var(--color-brand-800);
+  --color-brand-900: var(--color-brand-900);
+
+  --color-chip-pos: var(--color-chip-pos);
+  --color-chip-neg: var(--color-chip-neg);
+  --color-chip-live: var(--color-chip-live);
+  --color-chip-mute: var(--color-chip-mute);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Status pill — the standard soft-tint badge pattern (light background,
+   matching-darker text, fully rounded) used across leads/dealers/orders/
+   follow-ups/factory-visits. Kept as a `.chip` class so every call site
+   that already uses it needs no markup change. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.1875rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.chip-pos {
+  background: color-mix(in srgb, var(--color-chip-pos) 12%, white);
+  color: color-mix(in srgb, var(--color-chip-pos) 75%, black);
+}
+.chip-neg {
+  background: color-mix(in srgb, var(--color-chip-neg) 12%, white);
+  color: color-mix(in srgb, var(--color-chip-neg) 75%, black);
+}
+.chip-live {
+  background: var(--color-brand-50);
+  color: var(--color-brand-700);
+}
+.chip-mute {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* Tabular numerals for IDs, phone numbers, and counts — a standard,
+   subtle SaaS convention (Stripe/GitHub-style), not a costume. */
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+::selection {
+  background: var(--color-brand-100);
+  color: var(--color-brand-900);
+}
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d8 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #d4d4d8;
+  border-radius: 9999px;
+}

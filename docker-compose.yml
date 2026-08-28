@@ -1,0 +1,209 @@
+name: gatti-crm
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gatti_crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gatti_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-gatti_crm_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # 127.0.0.1 ONLY. This runs on an office PC on a shared network, and a
+      # bare "5432:5432" publishes the database to every device on that wifi
+      # — with the password sitting in .env. Bound to loopback it stays
+      # reachable on the host itself (psql, pg_dump backups) and nowhere else.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gatti_crm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ's job queues live only in Redis — without --appendonly, the
+    # stock image only takes periodic RDB snapshots (every few minutes),
+    # so any "schedule next follow-up" job added since the last snapshot
+    # is gone for good if Redis crashes or the container is killed
+    # ungracefully. AOF with per-second fsync means at most ~1s of queued
+    # work is ever at risk, not minutes of it.
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    ports:
+      # 127.0.0.1 ONLY — Redis has no password here, so publishing it to the
+      # LAN would let anyone on the network read or flush the job queue.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-off container: applies pending Prisma migrations, then exits.
+  # web/worker wait for this to finish successfully before they start.
+  migrate:
+    build:
+      context: .
+      target: builder
+    env_file: .env
+    environment:
+      # Always the in-network hostnames — overrides whatever host-relative
+      # values are in .env (e.g. "localhost") for containers on this network.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gatti_crm}:${POSTGRES_PASSWORD:-gatti_dev_pw}@postgres:5432/${POSTGRES_DB:-gatti_crm_dev}?schema=public
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # One-off container: seeds roles, permissions, sample lookups, and the
+  # first Super Admin. Idempotent (upserts + skips if the admin email
+  # already exists), so it's safe to run on every `docker compose up`.
+  seed:
+    build:
+      context: .
+      target: builder
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gatti_crm}:${POSTGRES_PASSWORD:-gatti_dev_pw}@postgres:5432/${POSTGRES_DB:-gatti_crm_dev}?schema=public
+    command: ["npx", "tsx", "prisma/seed.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gatti_crm}:${POSTGRES_PASSWORD:-gatti_dev_pw}@postgres:5432/${POSTGRES_DB:-gatti_crm_dev}?schema=public
+      REDIS_URL: redis://redis:6379
+      # In-network hostname — overrides the host-relative localhost value
+      # in .env, same as DATABASE_URL/REDIS_URL above.
+      OPENWA_BASE_URL: http://openwa:2785
+    ports:
+      - "3000:3000"
+    volumes:
+      # STORAGE_DRIVER=local writes here — without a named volume this
+      # lives in the container's writable layer and is lost on every
+      # rebuild/recreate. Irrelevant once STORAGE_DRIVER=s3/minio.
+      - app_storage:/app/storage
+      # Read-only view of the gateway's data dir, purely so the app can read
+      # the API key OpenWA generates on first boot (/openwa-data/.api-key).
+      # Without this, someone has to copy that key into .env by hand — a
+      # setup step that is easy to miss and silently breaks every send.
+      - openwa_data:/openwa-data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gatti_crm}:${POSTGRES_PASSWORD:-gatti_dev_pw}@postgres:5432/${POSTGRES_DB:-gatti_crm_dev}?schema=public
+      REDIS_URL: redis://redis:6379
+      OPENWA_BASE_URL: http://openwa:2785
+    volumes:
+      - app_storage:/app/storage
+      # Same read-only key share as web — the worker sends cadence messages
+      # of its own, so it needs to authenticate to the gateway too.
+      - openwa_data:/openwa-data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+
+  # WhatsApp gateway (github.com/rmyndharis/OpenWA) — one linked device per
+  # telecaller, driven entirely from the CRM's own /whatsapp page.
+  #
+  # Session durability is the whole point of this service definition:
+  #   - openwa_data holds the on-disk WhatsApp credentials AND OpenWA's own
+  #     SQLite DB (session rows, API keys). Without a NAMED volume these
+  #     live in the container's writable layer and every telecaller has to
+  #     re-scan their QR after any rebuild or recreate.
+  #   - AUTO_START_SESSIONS=true makes OpenWA resume every already-
+  #     authenticated session on boot, so a restart self-heals instead of
+  #     leaving devices sitting DISCONNECTED until someone re-scans.
+  #     Safe ONLY because this is a single instance — never scale this
+  #     service to >1 replica: two replicas resurrecting one session risks
+  #     WhatsApp force-logging-out (or banning) that number.
+  openwa:
+    image: ghcr.io/rmyndharis/openwa:latest
+    restart: unless-stopped
+    # Chromium teardown needs longer than Docker's 10s default; killing it
+    # mid-teardown can orphan a session profile (and cost a re-scan).
+    stop_grace_period: 45s
+    environment:
+      AUTO_START_SESSIONS: "true"
+      PORT: "2785"
+      NODE_ENV: production
+      DATABASE_TYPE: sqlite
+      DATABASE_NAME: /app/data/openwa.sqlite
+      DATABASE_SYNCHRONIZE: "true"
+      # Baileys speaks WhatsApp's protocol over a WebSocket — no Chromium at
+      # all. whatsapp-web.js runs a FULL headless browser per linked device
+      # (~300-500MB each), which on a shared office PC with several
+      # telecallers is both the memory ceiling and the source of the
+      # browser-specific failures seen in testing: a wedged gateway that
+      # reported "ready" but could not send, an "event bridge never attached"
+      # session death, and 26 orphaned Chromium processes surviving a stop.
+      # Baileys supports every send type this CRM uses (text/image/video/
+      # document) plus the full session lifecycle; the wwjs-only features it
+      # lacks (reactions, polls, chat history, Channels, Labels) are unused here.
+      ENGINE_TYPE: baileys
+      SESSION_DATA_PATH: /app/data/sessions
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/data/media
+    volumes:
+      - openwa_data:/app/data
+    ports:
+      # 127.0.0.1 ONLY. web/worker reach the gateway over the internal Docker
+      # network (http://openwa:2785), so nothing on the LAN needs this port.
+      # Keeping it on loopback still allows the OpenWA dashboard and curl
+      # checks from the PC itself when troubleshooting.
+      - "127.0.0.1:2785:2785"
+
+  # Optional S3-compatible object storage for dealer docs / factory-visit
+  # photos (§ Object Storage). Disabled by default — enable with
+  # `docker compose --profile storage up`, and set STORAGE_DRIVER=s3 in .env.
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    profiles: ["storage"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-gatti_minio}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-gatti_minio_secret}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    ports:
+      # Loopback only, same reasoning as the other datastores.
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  app_storage:
+  # WhatsApp linked-device credentials + OpenWA's SQLite DB. Deleting this
+  # volume forces every telecaller to re-scan their QR, and mints a new
+  # OpenWA API key that OPENWA_API_KEY in .env would no longer match.
+  openwa_data:
