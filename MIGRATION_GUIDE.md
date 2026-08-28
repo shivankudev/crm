@@ -208,6 +208,34 @@ docker compose cp backups\before-update-XXXXXXXX-XXXXXX.dump postgres:/tmp/db.du
 docker compose exec postgres pg_restore -U gatti_crm -d gatti_crm --clean --if-exists /tmp/db.dump
 ```
 
+### Making it update itself
+
+Run **`windows\register-auto-update.bat` once, as Administrator**
+(right-click → Run as administrator). From then on, a couple of minutes
+after each morning's sign-in the PC checks GitHub and updates itself if
+anything was published.
+
+When there is nothing new it does nothing at all, so it is safe to leave
+on. When there is, it takes the same care `update.bat` does: database
+backup first, and it stops at the first failure with the old version still
+running. Everything it did is in `logs\auto-update.log`.
+
+Sign-in was chosen deliberately over a during-the-day schedule: an update
+restarts the CRM for about a minute, and first thing in the morning is the
+one time nobody is mid-call.
+
+To stop it:
+
+```powershell
+schtasks /delete /tn "Gatti CRM auto-update" /f
+```
+
+You can still run `update.bat` by hand any time you want a change sooner.
+
+> There is no "live editing" on this machine. It runs a compiled build for
+> speed and safety, so a code change needs the short rebuild above — it is
+> not a development server that picks up edited files.
+
 ### The other half, on the Mac
 
 Changes are made and tested on the Mac, then pushed. Nothing is ever edited

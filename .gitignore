@@ -51,3 +51,6 @@ next-env.d.ts
 # service-account keys and similar — never committed
 /secrets/*
 !/secrets/.gitkeep
+
+# unattended update log
+/logs
