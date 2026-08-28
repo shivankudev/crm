@@ -1,7 +1,7 @@
 import {
   createLead as createLeadRow,
+  createLeadCheckingDuplicate as createLeadWithDuplicateCheck,
   findLeadByIdInScope,
-  findLeadByPhoneNormalized,
   generateLeadCode,
   listLeads as listLeadsRows,
   updateLead as updateLeadRow,
@@ -100,11 +100,6 @@ export async function createLead(
 ) {
   const phoneNormalized = normalizePhone(input.phone);
 
-  if (!input.allowDuplicate) {
-    const existing = await findLeadByPhoneNormalized(phoneNormalized);
-    if (existing) throw new DuplicateLeadError(existing);
-  }
-
   const newStatus = options?.initialStatusId
     ? await findLeadStatusById(options.initialStatusId)
     : await findLeadStatusByName("NEW");
@@ -120,7 +115,7 @@ export async function createLead(
   const leadCode = await generateLeadCode();
   const assignedUserId = input.assignedUserId ?? actor.id;
 
-  const lead = await createLeadRow({
+  const leadData = {
     leadCode,
     name: input.name,
     phone: input.phone,
@@ -148,7 +143,19 @@ export async function createLead(
     competitor: input.competitor,
     assignedUser: { connect: { id: assignedUserId } },
     createdBy: { connect: { id: actor.id } },
-  });
+  };
+
+  // Duplicates are checked inside the insert's transaction rather than
+  // before it — see createLeadCheckingDuplicate for why a plain read-then-
+  // write let concurrent submissions through.
+  let lead;
+  if (input.allowDuplicate) {
+    lead = await createLeadRow(leadData);
+  } else {
+    const result = await createLeadWithDuplicateCheck(leadData, phoneNormalized);
+    if (result.existing) throw new DuplicateLeadError(result.existing);
+    lead = result.lead!;
+  }
 
   await writeLeadActivity({
     leadId: lead.id,

@@ -1,7 +1,7 @@
 import {
   createDealer as createDealerRow,
+  createDealerCheckingDuplicate as createDealerWithDuplicateCheck,
   findDealerByIdInScope,
-  findDealerByPhoneNormalized,
   generateDealerCode,
   listDealers as listDealersRows,
   listOnboardingDealers,
@@ -75,15 +75,11 @@ export async function createDealer(input: CreateDealerInput, actor: CurrentUser)
   if (!can(actor, PERMISSIONS.DEALERS_MANAGE)) throw new ForbiddenError();
 
   const phoneNormalized = normalizePhone(input.phone);
-  if (!input.allowDuplicate) {
-    const existing = await findDealerByPhoneNormalized(phoneNormalized);
-    if (existing) throw new DuplicateDealerError(existing);
-  }
 
   const prospectStatus = await findDealerStatusByName("PROSPECT");
   if (!prospectStatus) throw new DealerServiceError("PROSPECT dealer status is not configured");
 
-  const dealer = await createDealerRow({
+  const dealerData = {
     dealerName: input.dealerName,
     contactPerson: input.contactPerson,
     phone: input.phone,
@@ -103,7 +99,18 @@ export async function createDealer(input: CreateDealerInput, actor: CurrentUser)
     investmentCapacity: input.investmentCapacity,
     status: { connect: { id: prospectStatus.id } },
     createdById: actor.id,
-  });
+  };
+
+  // Checked inside the insert's own transaction — see
+  // createDealerCheckingDuplicate for why the prior read-then-write raced.
+  let dealer;
+  if (input.allowDuplicate) {
+    dealer = await createDealerRow(dealerData);
+  } else {
+    const result = await createDealerWithDuplicateCheck(dealerData, phoneNormalized);
+    if (result.existing) throw new DuplicateDealerError(result.existing);
+    dealer = result.dealer!;
+  }
 
   await writeDealerActivity({
     dealerId: dealer.id,

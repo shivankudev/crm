@@ -42,6 +42,50 @@ export function createLead(data: Prisma.LeadCreateInput) {
   return prisma.lead.create({ data, include: LEAD_INCLUDE });
 }
 
+/**
+ * Duplicate-checked insert, atomic against concurrent creates of the same
+ * number.
+ *
+ * The plain check-then-insert was a race: eight simultaneous submissions of
+ * one phone number all read "no existing lead" before any of them had
+ * written, and all eight rows landed. A double-clicked Save button or two
+ * telecallers working the same enquiry was enough to trigger it.
+ *
+ * A unique constraint would be the usual answer, but duplicates are a
+ * supported outcome here — `allowDuplicate` exists so staff can deliberately
+ * keep a second record for the same number. So instead the check and the
+ * insert are wrapped in one transaction holding a Postgres advisory lock
+ * keyed on the number itself: concurrent creates of the *same* phone
+ * serialise, and creates of any other number are unaffected.
+ */
+export function createLeadCheckingDuplicate(
+  data: Prisma.LeadCreateInput,
+  phoneNormalized: string
+): Promise<{ lead: Prisma.LeadGetPayload<{ include: typeof LEAD_INCLUDE }> | null; existing: DuplicateCandidate | null }> {
+  return prisma.$transaction(async (tx) => {
+    // Transaction-scoped: released on commit or rollback, so it can never leak.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${phoneNormalized}))`;
+
+    const existing = await tx.lead.findFirst({
+      where: { phoneNormalized, deletedAt: null },
+      select: { id: true, leadCode: true, name: true, phone: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing) return { lead: null, existing };
+
+    const lead = await tx.lead.create({ data, include: LEAD_INCLUDE });
+    return { lead, existing: null };
+  });
+}
+
+type DuplicateCandidate = {
+  id: string;
+  leadCode: string;
+  name: string;
+  phone: string;
+  createdAt: Date;
+};
+
 export function updateLead(id: string, data: Prisma.LeadUpdateInput) {
   return prisma.lead.update({ where: { id }, data, include: LEAD_INCLUDE });
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { optionalPhone, requiredPhone } from "@/lib/validation/phone";
 import { DEALER_DOC_TYPES } from "@/lib/dealers/constants";
 
 const optionalId = z.string().min(1).nullable().optional();
@@ -6,9 +7,9 @@ const optionalId = z.string().min(1).nullable().optional();
 export const createDealerSchema = z.object({
   dealerName: z.string().trim().min(1).max(150),
   contactPerson: z.string().trim().max(150).optional(),
-  phone: z.string().trim().min(6).max(20),
-  altPhone: z.string().trim().max(20).optional(),
-  whatsapp: z.string().trim().max(20).optional(),
+  phone: requiredPhone(),
+  altPhone: optionalPhone().optional(),
+  whatsapp: optionalPhone().optional(),
   email: z.string().trim().email().optional().or(z.literal("")),
 
   address: z.string().trim().max(500).optional(),
@@ -30,9 +31,9 @@ export const createDealerSchema = z.object({
 export const updateDealerSchema = z.object({
   dealerName: z.string().trim().min(1).max(150).optional(),
   contactPerson: z.string().trim().max(150).nullable().optional(),
-  phone: z.string().trim().min(6).max(20).optional(),
-  altPhone: z.string().trim().max(20).nullable().optional(),
-  whatsapp: z.string().trim().max(20).nullable().optional(),
+  phone: requiredPhone().optional(),
+  altPhone: optionalPhone().nullable().optional(),
+  whatsapp: optionalPhone().nullable().optional(),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
 
   address: z.string().trim().max(500).nullable().optional(),

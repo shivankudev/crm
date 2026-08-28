@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/auth/current-user";
 import { listOverdueForUser } from "@/services/followup.service";
 import { errorResponse } from "@/lib/api-response";
+import { parsePagination } from "@/lib/pagination";
 
 export async function GET(req: NextRequest) {
   try {
     const actor = await requireApiUser();
     const params = req.nextUrl.searchParams;
-    const page = params.get("page") ? Number(params.get("page")) : 1;
-    const pageSize = Math.min(params.get("pageSize") ? Number(params.get("pageSize")) : 25, 100);
+    const { page, pageSize } = parsePagination(params, { pageSize: 25, maxPageSize: 100 });
 
     const { followUps, total } = await listOverdueForUser(actor, { page, pageSize });
     return NextResponse.json({ followUps, total });

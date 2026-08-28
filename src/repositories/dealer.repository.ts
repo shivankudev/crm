@@ -40,6 +40,43 @@ export function createDealer(data: Prisma.DealerCreateInput) {
   return prisma.dealer.create({ data, include: DEALER_INCLUDE });
 }
 
+/**
+ * Duplicate-checked insert, atomic against concurrent creates of the same
+ * number — the dealer-side twin of createLeadCheckingDuplicate, and racy
+ * in exactly the same way before this: six simultaneous submissions of one
+ * phone number produced six dealers. See that function for why an advisory
+ * lock is used rather than a unique constraint.
+ */
+export function createDealerCheckingDuplicate(
+  data: Prisma.DealerCreateInput,
+  phoneNormalized: string
+): Promise<{
+  dealer: Prisma.DealerGetPayload<{ include: typeof DEALER_INCLUDE }> | null;
+  existing: DuplicateDealerCandidate | null;
+}> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${phoneNormalized}))`;
+
+    const existing = await tx.dealer.findFirst({
+      where: { phoneNormalized, deletedAt: null },
+      select: { id: true, dealerCode: true, dealerName: true, phone: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing) return { dealer: null, existing };
+
+    const dealer = await tx.dealer.create({ data, include: DEALER_INCLUDE });
+    return { dealer, existing: null };
+  });
+}
+
+type DuplicateDealerCandidate = {
+  id: string;
+  dealerCode: string | null;
+  dealerName: string;
+  phone: string;
+  createdAt: Date;
+};
+
 export function updateDealer(id: string, data: Prisma.DealerUpdateInput) {
   return prisma.dealer.update({ where: { id }, data, include: DEALER_INCLUDE });
 }

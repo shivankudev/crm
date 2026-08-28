@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { optionalPhone, requiredPhone } from "@/lib/validation/phone";
 
 const optionalId = z.string().min(1).nullable().optional();
 
 export const createLeadSchema = z.object({
   name: z.string().trim().min(1).max(150),
-  phone: z.string().trim().min(6).max(20),
-  phone2: z.string().trim().max(20).optional(),
-  whatsapp: z.string().trim().max(20).optional(),
+  phone: requiredPhone(),
+  phone2: optionalPhone().optional(),
+  whatsapp: optionalPhone().optional(),
   email: z.string().trim().email().optional().or(z.literal("")),
 
   address: z.string().trim().max(500).optional(),
@@ -35,9 +36,9 @@ export const createLeadSchema = z.object({
 
 export const updateLeadSchema = z.object({
   name: z.string().trim().min(1).max(150).optional(),
-  phone: z.string().trim().min(6).max(20).optional(),
-  phone2: z.string().trim().max(20).nullable().optional(),
-  whatsapp: z.string().trim().max(20).nullable().optional(),
+  phone: requiredPhone().optional(),
+  phone2: optionalPhone().nullable().optional(),
+  whatsapp: optionalPhone().nullable().optional(),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
 
   address: z.string().trim().max(500).nullable().optional(),
@@ -69,7 +70,7 @@ export const changeLeadStatusSchema = z.object({
 });
 
 export const logCallSchema = z.object({
-  phoneUsed: z.string().trim().min(6).max(20),
+  phoneUsed: requiredPhone(),
   callStatus: z.enum([
     "CONNECTED",
     "NOT_CONNECTED",

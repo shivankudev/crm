@@ -16,8 +16,30 @@ import { WhatsAppServiceError } from "@/services/whatsapp.service";
 import { QuickActionError } from "@/services/whatsapp-quick-action.service";
 import { OpenWAError } from "@/lib/openwa-client";
 
+/**
+ * A request body that can't be parsed at all — `req.json()` on a malformed
+ * or empty body, or `req.formData()` when the Content-Type isn't a form.
+ *
+ * Both throw before any handler code runs, so without this every write
+ * endpoint in the app answered a bad body with a 500 and a stack trace in
+ * the server log, when the caller's request was simply wrong. Matched
+ * narrowly — a SyntaxError can only reach here from JSON.parse of the body,
+ * and the form case is matched on undici's exact message — so a genuine
+ * internal fault still surfaces as a 500.
+ */
+function isUnparseableBody(error: unknown): boolean {
+  if (error instanceof SyntaxError) return true;
+  return (
+    error instanceof TypeError &&
+    error.message.startsWith('Content-Type was not one of "multipart/form-data"')
+  );
+}
+
 /** Maps known error types to the right HTTP status + safe message. */
 export function errorResponse(error: unknown): NextResponse {
+  if (isUnparseableBody(error)) {
+    return NextResponse.json({ error: "Malformed request body" }, { status: 400 });
+  }
   if (error instanceof ZodError) {
     return NextResponse.json(
       { error: "Validation failed", issues: error.issues },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requiredPhone } from "@/lib/validation/phone";
 
 /**
  * The Telecalling workspace's single combined write: log a call, then let
@@ -11,7 +12,7 @@ export const logTelecallingOutcomeSchema = z.object({
   leadId: z.string().min(1),
   followUpId: z.string().min(1).nullable(),
   resultId: z.string().min(1),
-  phoneUsed: z.string().trim().min(6).max(20),
+  phoneUsed: requiredPhone(),
   notes: z.string().trim().max(2000).optional(),
   continueFollowUp: z.boolean().default(true),
 });

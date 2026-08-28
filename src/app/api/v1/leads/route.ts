@@ -3,6 +3,7 @@ import { requireApiUser } from "@/lib/auth/current-user";
 import { createLeadSchema } from "@/lib/validation/lead";
 import { createLead, listLeadsForUser } from "@/services/lead.service";
 import { errorResponse } from "@/lib/api-response";
+import { parsePagination } from "@/lib/pagination";
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,8 +17,7 @@ export async function GET(req: NextRequest) {
       assignedUserId: params.get("owner") ?? undefined,
       temperature: params.get("temperature") ?? undefined,
       search: params.get("q") ?? undefined,
-      page: params.get("page") ? Number(params.get("page")) : undefined,
-      pageSize: params.get("pageSize") ? Number(params.get("pageSize")) : undefined,
+      ...parsePagination(params),
     });
 
     return NextResponse.json({ leads, total });

@@ -3,6 +3,7 @@ import { requireApiUser } from "@/lib/auth/current-user";
 import { createDealerSchema } from "@/lib/validation/dealer";
 import { createDealer, listDealersForUser } from "@/services/dealer.service";
 import { errorResponse } from "@/lib/api-response";
+import { parsePagination } from "@/lib/pagination";
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,8 +14,7 @@ export async function GET(req: NextRequest) {
       statusId: params.get("status") ?? undefined,
       stateId: params.get("state") ?? undefined,
       search: params.get("q") ?? undefined,
-      page: params.get("page") ? Number(params.get("page")) : undefined,
-      pageSize: params.get("pageSize") ? Number(params.get("pageSize")) : undefined,
+      ...parsePagination(params),
     });
 
     return NextResponse.json({ dealers, total });

@@ -41,7 +41,11 @@ export function Avatar({
   size?: keyof typeof SIZES;
   className?: string;
 }) {
-  const initial = name.trim().slice(0, 1).toUpperCase() || "?";
+  // Array.from iterates by code point, not UTF-16 code unit. `.slice(0, 1)`
+  // cut an emoji in half and emitted a lone surrogate, which the server and
+  // the browser serialise differently — that mismatch failed hydration and
+  // forced React to throw away and re-render the whole leads table.
+  const initial = (Array.from(name.trim())[0] ?? "").toUpperCase() || "?";
   return (
     <span
       className={clsx(
