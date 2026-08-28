@@ -1,0 +1,5 @@
+# Windows batch files must keep CRLF endings wherever they are checked out.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+# Everything else stays LF so the Linux containers see what the Mac wrote.
+* text=auto eol=lf

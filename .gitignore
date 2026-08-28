@@ -44,3 +44,6 @@ next-env.d.ts
 
 # migration bundle artifacts (rebuilt, never source of truth)
 /gatti-crm-source.zip
+
+# db dumps taken by windows/update.bat
+/backups
