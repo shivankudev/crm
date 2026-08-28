@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Clock3, Package, MapPin, History, ArrowRight, PartyPopper } from "lucide-react";
+import { Clock3, Package, MapPin, History, ArrowRight, PartyPopper, Search, X } from "lucide-react";
 import { StatusBadge } from "@/components/leads/status-badge";
 import { TemperatureBadge } from "@/components/leads/temperature-badge";
 import { StatCard, StatRail } from "@/components/ui/stat-card";
@@ -11,6 +11,7 @@ import { LeadPhone } from "@/components/telecalling/lead-phone";
 import { useToast } from "@/components/ui/toast";
 import { QuickSendButtons } from "@/components/telecalling/quick-send-buttons";
 import { formatDate } from "@/lib/format";
+import { canonicalizePhone } from "@/lib/phone";
 
 type Option = { id: string; name: string };
 
@@ -125,6 +126,7 @@ export function TelecallingWorkspace({
   const [continueFollowUp, setContinueFollowUp] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [search, setSearch] = useState("");
 
   const current = queue[0];
 
@@ -134,6 +136,45 @@ export function TelecallingWorkspace({
   // actioned, since the follow-up behind it is still PENDING for today.
   function advance(requeue = false) {
     setQueue((q) => (requeue && q.length > 0 ? [...q.slice(1), q[0]] : q.slice(1)));
+    setSearch("");
+    setNotes("");
+    setContinueFollowUp(true);
+    setError(null);
+  }
+
+  // Searching only what's already in today's queue, never the whole book.
+  // The caller who picks up an unexpected callback needs the card that
+  // carries the follow-up they were going to ring about — jumping to it
+  // here logs against that follow-up, which reaching the lead's own page
+  // cannot do, and leaves this list consistent instead of stale.
+  const matches = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const none = { isCurrent: false, items: [] as QueueItem[] };
+    if (q.length < 2) return none;
+    // Canonicalised so a number read off an incoming call ("+91 95200
+    // 44032") matches one stored as "9520044032" — the same reason the
+    // lead search needed it, and the likeliest way this box gets used.
+    const digits = canonicalizePhone(search);
+    const hit = (item: QueueItem) => {
+      const l = item.lead;
+      if (digits.length >= 4 && [l.phone, l.phone2, l.whatsapp].some((p) => p && canonicalizePhone(p).includes(digits))) return true;
+      return l.name.toLowerCase().includes(q) || l.leadCode.toLowerCase().includes(q);
+    };
+    return {
+      // The card on screen is not offered as somewhere to jump to, but it
+      // still has to be recognised: without this, searching the name shown
+      // directly below answered "not in today's queue", which is worse than
+      // unhelpful when the lead is right there.
+      isCurrent: current ? hit(current) : false,
+      items: queue.filter((item, index) => index > 0 && hit(item)).slice(0, 6),
+    };
+  }, [search, queue, current]);
+
+  // Bring a searched-for card to the front. Everything else keeps its
+  // order, so the queue's priority is only interrupted, never rewritten.
+  function jumpTo(item: QueueItem) {
+    setQueue((q) => [item, ...q.filter((x) => x !== item)]);
+    setSearch("");
     setNotes("");
     setContinueFollowUp(true);
     setError(null);
@@ -233,6 +274,65 @@ export function TelecallingWorkspace({
       </div>
 
       <div className="mt-5">{statsRow}</div>
+
+      {/* Jump straight to any lead already in today's queue — for the
+          callback that arrives mid-list, so the caller settles the right
+          follow-up without leaving this screen. */}
+      <div className="relative mt-5">
+        <Search size={13} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setSearch("");
+            if (e.key === "Enter" && matches.items.length > 0) jumpTo(matches.items[0]);
+          }}
+          placeholder="Someone called back? Find them in today's queue — name, number or code"
+          className="w-full rounded-md border border-slate-200 bg-white py-2 pr-8 pl-8 text-xs text-slate-800 placeholder:text-slate-400 focus:border-brand-400 focus:ring-1 focus:ring-brand-400 focus:outline-none"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+            className="absolute top-1/2 right-2.5 -translate-y-1/2 rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X size={13} />
+          </button>
+        )}
+
+        {search.trim().length >= 2 && (
+          <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+            {matches.items.length === 0 ? (
+              <p className="px-3 py-2.5 text-[11px] text-slate-500">
+                {matches.isCurrent ? (
+                  <>Already on screen — use the outcome buttons below.</>
+                ) : (
+                  <>
+                    Not in today&apos;s queue.{" "}
+                    <Link href={`/leads?q=${encodeURIComponent(search.trim())}`} className="font-medium text-brand-600 hover:underline">
+                      Search all leads
+                    </Link>
+                  </>
+                )}
+              </p>
+            ) : (
+              matches.items.map((item) => (
+                <button
+                  key={item.followUpId ?? item.lead.id}
+                  type="button"
+                  onClick={() => jumpTo(item)}
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition hover:bg-slate-50"
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800">{item.lead.name}</span>
+                  <span className="tnum shrink-0 font-mono text-[11px] text-slate-500">{item.lead.phone}</span>
+                  <span className={KIND_STYLES[item.kind]}>{KIND_LABELS[item.kind]}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="mt-5 rounded-lg border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(10,11,16,0.04)]">
         <div className="flex items-center justify-between">
