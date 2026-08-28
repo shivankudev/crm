@@ -54,16 +54,22 @@ const QR_POLL_MS = 3000;
 /**
  * How long a scan code is good for, used only to drive the countdown.
  *
- * WhatsApp publishes no expiry and the gateway passes none on, so this is
- * measured from the moment a new code appeared. Timing the real rotation on
- * a live session gave 19s, 21s and 25s, so it genuinely varies and no fixed
- * number can be exact — 22s is the middle of that. The countdown is
- * therefore phrased as an approximation throughout, and running out is
- * presented as harmless, because it is: the poll keeps the displayed image
- * current within a few seconds either way, so whatever is on screen is
- * scannable.
+ * Neither WhatsApp nor the gateway publishes an expiry, so this was
+ * measured: polling the gateway's own QR endpoint twice a second gave
+ * rotations of 20.4s and 20.2s. (A coarser reading through the browser
+ * suggested 24s, but that measures from when the CLIENT noticed a change,
+ * which inherits up to 3s of poll lag at each end — the gateway-side figure
+ * is the real one.)
+ *
+ * Set marginally under the measured interval on purpose. Erring short means
+ * the caption briefly says a new code is imminent while the old one is
+ * still valid, which is harmless and stated as such. Erring long would have
+ * it promise seconds that no longer exist.
  */
-const QR_LIFETIME_MS = 22000;
+const QR_LIFETIME_MS = 20000;
+
+/** Countdown refresh rate. Short enough that the bar reads as continuous motion. */
+const QR_TICK_MS = 200;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 /**
@@ -85,8 +91,12 @@ export function WhatsAppWidget() {
    * collapsing.
    */
   const [confirmedLive, setConfirmedLive] = useState(false);
-  /** Seconds until the displayed code is replaced; null when no code is showing. */
-  const [qrSecondsLeft, setQrSecondsLeft] = useState<number | null>(null);
+  /**
+   * Milliseconds until the displayed code is replaced; null when no code is
+   * showing. Held in ms, not whole seconds, so the bar can move smoothly
+   * while the caption still counts in seconds.
+   */
+  const [qrMsLeft, setQrMsLeft] = useState<number | null>(null);
   /** False when the CRM could not reach the WhatsApp gateway at all. */
   const [gatewayReachable, setGatewayReachable] = useState(true);
 
@@ -98,6 +108,8 @@ export function WhatsAppWidget() {
   const liveSinceRef = useRef<number | null>(null);
   /** When the code currently on screen first appeared — the countdown's origin. */
   const qrSeenAtRef = useRef<number | null>(null);
+  /** The code currently displayed, so a rotation can be told from a repeat poll. */
+  const qrCodeRef = useRef<string | null>(null);
   /**
    * Re-arms the heartbeat at whatever cadence now applies. Held in a ref
    * because the moment the cadence needs to change — the QR poll seeing
@@ -112,16 +124,20 @@ export function WhatsAppWidget() {
    * one actually on screen.
    */
   const applyQrCode = useCallback((next: string | null) => {
-    setQrCode((prev) => {
-      if (prev === next) return prev;
-      qrSeenAtRef.current = next ? Date.now() : null;
-      return next;
-    });
-    // Seeded here rather than in the ticker's effect: writing state
-    // synchronously in an effect body causes a cascading render, and doing
-    // it at the swap also means the countdown never briefly shows a stale
-    // number from the previous code.
-    setQrSecondsLeft(next ? Math.round(QR_LIFETIME_MS / 1000) : null);
+    // Compared against a ref, and every write done here rather than inside
+    // the setQrCode updater.
+    //
+    // Two bugs came out of the previous shape. The countdown was re-seeded
+    // on EVERY poll instead of only on a genuine rotation, so it snapped
+    // back to full every three seconds and then jumped to the real
+    // remaining time — the bar visibly stuttered. And mutating a ref inside
+    // a state updater is a side effect in a function React expects to be
+    // pure and may call more than once.
+    if (qrCodeRef.current === next) return;
+    qrCodeRef.current = next;
+    qrSeenAtRef.current = next ? Date.now() : null;
+    setQrCode(next);
+    setQrMsLeft(next ? QR_LIFETIME_MS : null);
   }, []);
 
   const stopPolling = useCallback(() => {
@@ -294,12 +310,14 @@ export function WhatsAppWidget() {
 
   // Ticks once a second while a code is displayed. Keyed on qrCode so a
   // rotation restarts it cleanly, and torn down the moment the code goes.
+  // Ticks well under a second so the bar glides rather than stepping; the
+  // caption is derived from the same value and still changes once a second.
   useEffect(() => {
     if (!qrCode) return;
     const id = setInterval(() => {
       const seenAt = qrSeenAtRef.current ?? Date.now();
-      setQrSecondsLeft(Math.max(0, Math.ceil((QR_LIFETIME_MS - (Date.now() - seenAt)) / 1000)));
-    }, 1000);
+      setQrMsLeft(Math.max(0, QR_LIFETIME_MS - (Date.now() - seenAt)));
+    }, QR_TICK_MS);
     return () => clearInterval(id);
   }, [qrCode]);
 
@@ -363,6 +381,10 @@ export function WhatsAppWidget() {
       </Card>
     );
   }
+
+  // Caption seconds derived from the same millisecond value that drives the
+  // bar, so the two can never disagree.
+  const qrSecondsLeft = qrMsLeft === null ? null : Math.ceil(qrMsLeft / 1000);
 
   const status = session?.status ?? "disconnected";
   const statusIsLive = isWhatsAppLive(status);
@@ -445,11 +467,12 @@ export function WhatsAppWidget() {
               out it says what is happening rather than sitting on zero. */}
           <div className="w-full max-w-[200px]">
             <div className="h-1 overflow-hidden rounded-full bg-slate-100">
+              {/* No CSS transition: the value already updates every 200ms, and
+                  a transition longer than the tick makes the bar chase a
+                  target it never reaches, which reads as lag. */}
               <div
-                className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${
-                  (qrSecondsLeft ?? 0) <= 5 ? "bg-amber-400" : "bg-brand-500"
-                }`}
-                style={{ width: `${Math.min(100, ((qrSecondsLeft ?? 0) / (QR_LIFETIME_MS / 1000)) * 100)}%` }}
+                className={`h-full rounded-full ${qrSecondsLeft !== null && qrSecondsLeft <= 5 ? "bg-amber-400" : "bg-brand-500"}`}
+                style={{ width: `${qrMsLeft === null ? 0 : Math.min(100, (qrMsLeft / QR_LIFETIME_MS) * 100)}%` }}
               />
             </div>
             <p className="mt-1.5 text-center text-[11px] text-slate-400">
