@@ -47,3 +47,7 @@ next-env.d.ts
 
 # db dumps taken by windows/update.bat
 /backups
+
+# service-account keys and similar — never committed
+/secrets/*
+!/secrets/.gitkeep

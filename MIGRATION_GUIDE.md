@@ -217,6 +217,66 @@ updates work again.
 
 ---
 
+## Pulling leads in from Google Sheets
+
+New rows in a linked sheet become leads on their own — checked every ten
+minutes, and again whenever this PC starts up. Set up under
+**Settings → Google Sheet lead sources**. Admins only; telecallers cannot see
+or change it.
+
+Each sheet needs a header row, and at minimum a **name** and a **phone**
+column. `email`, `interested product` and `temperature` are used if present
+and ignored if not. Rows missing a name or a usable phone number are skipped
+and counted, not silently dropped.
+
+Assign one telecaller to a sheet and every lead from it is theirs. Assign
+several and the rows are dealt out between them in turn, so a shared sheet
+splits evenly. The rotation is remembered, so a restart doesn't send the next
+batch back to the first person.
+
+### Which access mode
+
+**Private sheet (recommended for real lead data).** The sheet stays private
+and is read through a Google service account. One-time setup:
+
+1. Go to <https://console.cloud.google.com/> and create a project (any name).
+2. **APIs & Services → Library**, search "Google Sheets API", press **Enable**.
+3. **APIs & Services → Credentials → Create credentials → Service account**.
+   Give it a name; no roles or user access are needed. Create it.
+4. Open the new service account → **Keys → Add key → Create new key → JSON**.
+   A `.json` file downloads.
+5. Put that file in `C:\gatti-crm\secrets\` as `google-service-account.json`,
+   and set this in `.env`:
+
+   ```
+   GOOGLE_SERVICE_ACCOUNT_KEY_FILE=/run/secrets/google-service-account.json
+   ```
+
+6. `docker compose up -d` to pick it up.
+7. In each Google Sheet: **Share** → paste the service account's email
+   address (it ends `.iam.gserviceaccount.com`, and the CRM shows it on the
+   settings page) → give it **Viewer** → Send.
+
+**Published link.** No credentials at all: in the sheet, **File → Share →
+Publish to web → CSV**, and paste the link. Be aware that a published sheet
+can be read by anyone who has the link, without signing in — including the
+customer names and phone numbers in it. Fine for a scratch sheet, not for
+real lead data.
+
+### What it will and won't do
+
+- It only ever reads *forward*. Editing a row that was already imported does
+  not re-import or update it — the sheet is an inbox, not a mirror.
+- A phone number already in the CRM is skipped as a duplicate and counted.
+- Imported leads get their follow-up scheduled as normal but **no welcome
+  WhatsApp**, deliberately: a sheet can drop a hundred rows at once, and one
+  message per row is the burst pattern that gets a number banned.
+- If a sheet can't be read, the reason is shown on its card in Settings and
+  the other sheets carry on regardless.
+- **Sync now** on any sheet runs the same import immediately.
+
+---
+
 ## If something looks wrong
 
 **CRM won't load on the mini PC itself.** Check Docker Desktop is running and

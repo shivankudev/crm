@@ -3,12 +3,16 @@ import { redisConnection } from "@/lib/redis";
 import {
   QUEUE_NAMES,
   enqueueOverdueDetectorNow,
+  enqueueLeadSheetPollNow,
   scheduleOverdueDetectorRepeatable,
+  scheduleLeadSheetPollRepeatable,
   type ScheduleNextFollowUpJob,
 } from "@/lib/queues";
 import { scheduleNextFollowUpForLead } from "@/services/followup.service";
 import { flagOverdueFollowUps } from "@/repositories/followup.repository";
 import { todayUTC } from "@/lib/date";
+import { syncAllLeadSheets } from "@/services/lead-sheet.service";
+import { getSystemActor } from "@/lib/system-actor";
 
 /**
  * BullMQ worker process (docker-compose service "worker" / `npm run worker`).
@@ -48,7 +52,33 @@ const overdueWorker = new Worker(
   { connection: redisConnection }
 );
 
-for (const worker of [followUpWorker, overdueWorker]) {
+/**
+ * Pulls new rows from every enabled Google Sheet. Runs as a Super Admin
+ * (see getSystemActor) because the lead-creation path is written for a real
+ * signed-in actor — it stamps createdBy and needs someone whose visibility
+ * covers every lead it might touch.
+ */
+const leadSheetWorker = new Worker(
+  QUEUE_NAMES.LEAD_SHEET_POLLER,
+  async () => {
+    const actor = await getSystemActor();
+    if (!actor) {
+      console.error("[worker] no active Super Admin to run the sheet import as — skipping");
+      return;
+    }
+    const results = await syncAllLeadSheets(actor);
+    for (const r of results) {
+      if (r.error) console.error(`[worker] sheet "${r.name}": ${r.error}`);
+      else if (r.rowsRead > 0)
+        console.log(
+          `[worker] sheet "${r.name}": ${r.created} created, ${r.skippedDuplicate} duplicate, ${r.skippedInvalid} unusable, ${r.failed} failed`
+        );
+    }
+  },
+  { connection: redisConnection }
+);
+
+for (const worker of [followUpWorker, overdueWorker, leadSheetWorker]) {
   worker.on("ready", () => console.log(`[worker] "${worker.name}" connected, listening for jobs…`));
   worker.on("failed", (job, err) => console.error(`[worker] "${worker.name}" job ${job?.id} failed:`, err));
 }
@@ -65,7 +95,17 @@ enqueueOverdueDetectorNow()
   .then(() => console.log('[worker] queued startup "flag-overdue" catch-up sweep'))
   .catch((err) => console.error("[worker] failed to queue startup sweep:", err));
 
+scheduleLeadSheetPollRepeatable()
+  .then(() => console.log("[worker] registered lead-sheet poll (every 10 min)"))
+  .catch((err) => console.error("[worker] failed to register sheet poll:", err));
+
+// Same catch-up reasoning: rows added to a sheet overnight should land as
+// soon as the machine is back, not up to ten minutes later.
+enqueueLeadSheetPollNow()
+  .then(() => console.log("[worker] queued startup lead-sheet catch-up poll"))
+  .catch((err) => console.error("[worker] failed to queue startup sheet poll:", err));
+
 process.on("SIGTERM", async () => {
-  await Promise.all([followUpWorker.close(), overdueWorker.close()]);
+  await Promise.all([followUpWorker.close(), overdueWorker.close(), leadSheetWorker.close()]);
   process.exit(0);
 });

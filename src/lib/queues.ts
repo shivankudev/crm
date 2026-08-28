@@ -4,6 +4,7 @@ import { redisConnection } from "@/lib/redis";
 export const QUEUE_NAMES = {
   FOLLOWUP_SCHEDULER: "followup-scheduler",
   OVERDUE_DETECTOR: "overdue-detector",
+  LEAD_SHEET_POLLER: "lead-sheet-poller",
 } as const;
 
 export type ScheduleNextFollowUpJob = {
@@ -24,6 +25,7 @@ export type ScheduleNextFollowUpJob = {
 const globalForQueues = globalThis as unknown as {
   followUpQueue: Queue<ScheduleNextFollowUpJob> | undefined;
   overdueQueue: Queue | undefined;
+  leadSheetQueue: Queue | undefined;
 };
 
 export const followUpQueue =
@@ -41,9 +43,13 @@ export const followUpQueue =
 export const overdueQueue =
   globalForQueues.overdueQueue ?? new Queue(QUEUE_NAMES.OVERDUE_DETECTOR, { connection: redisConnection });
 
+export const leadSheetQueue =
+  globalForQueues.leadSheetQueue ?? new Queue(QUEUE_NAMES.LEAD_SHEET_POLLER, { connection: redisConnection });
+
 if (process.env.NODE_ENV !== "production") {
   globalForQueues.followUpQueue = followUpQueue;
   globalForQueues.overdueQueue = overdueQueue;
+  globalForQueues.leadSheetQueue = leadSheetQueue;
 }
 
 /**
@@ -93,4 +99,28 @@ export async function scheduleOverdueDetectorRepeatable() {
 
 export function enqueueOverdueDetectorNow() {
   return overdueQueue.add("flag-overdue", {});
+}
+
+/**
+ * How often to look at the linked Google Sheets.
+ *
+ * An interval rather than a wall-clock schedule, for the same reason as the
+ * overdue sweep: the office PC is switched off overnight, so anything tied
+ * to a clock time would simply be missed. Ten minutes is well inside what
+ * "picks up new rows automatically" needs to mean, and each poll is one
+ * cheap read per sheet.
+ */
+export const LEAD_SHEET_POLL_INTERVAL_MS = 10 * 60 * 1000;
+
+export async function scheduleLeadSheetPollRepeatable() {
+  return leadSheetQueue.upsertJobScheduler(
+    "poll-lead-sheets-recurring",
+    { every: LEAD_SHEET_POLL_INTERVAL_MS },
+    { name: "poll-lead-sheets" }
+  );
+}
+
+/** Catch-up on boot — rows added while the machine was off are picked up at once. */
+export function enqueueLeadSheetPollNow() {
+  return leadSheetQueue.add("poll-lead-sheets", {});
 }

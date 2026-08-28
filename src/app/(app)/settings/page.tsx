@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ListChecks, CalendarClock, Building2, Package, ShieldCheck, MessageCircle, Send, type LucideIcon } from "lucide-react";
+import { ListChecks, CalendarClock, Building2, Package, ShieldCheck, MessageCircle, Send, Table2, type LucideIcon } from "lucide-react";
 import { requireUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/rbac/can";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -35,6 +35,12 @@ export default async function SettingsHubPage() {
       title: "Quick send buttons",
       description: "One-press WhatsApp sends on the calling screen.",
       icon: Send,
+    },
+    canSettings && {
+      href: "/settings/lead-sheets",
+      title: "Google Sheet lead sources",
+      description: "Pull new leads automatically from linked sheets.",
+      icon: Table2,
     },
     canSettings && {
       href: "/settings/dealers",

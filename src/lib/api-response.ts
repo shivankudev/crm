@@ -14,6 +14,8 @@ import { OrderNotFoundError, OrderServiceError } from "@/services/order.service"
 import { ImportServiceError } from "@/services/import.service";
 import { WhatsAppServiceError } from "@/services/whatsapp.service";
 import { QuickActionError } from "@/services/whatsapp-quick-action.service";
+import { LeadSheetError } from "@/services/lead-sheet.service";
+import { GoogleSheetsError } from "@/lib/google-sheets";
 import { OpenWAError } from "@/lib/openwa-client";
 
 /**
@@ -80,9 +82,15 @@ export function errorResponse(error: unknown): NextResponse {
     error instanceof OrderServiceError ||
     error instanceof ImportServiceError ||
     error instanceof WhatsAppServiceError ||
-    error instanceof QuickActionError
+    error instanceof QuickActionError ||
+    error instanceof LeadSheetError
   ) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  if (error instanceof GoogleSheetsError) {
+    // Google refused us or the sheet isn't reachable — like OpenWAError,
+    // that's this server's dependency failing, not a bad request.
+    return NextResponse.json({ error: error.message }, { status: 502 });
   }
   if (error instanceof OpenWAError) {
     // The gateway itself is down/misconfigured, or WhatsApp rejected the

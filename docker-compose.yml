@@ -99,6 +99,9 @@ services:
       # Without this, someone has to copy that key into .env by hand — a
       # setup step that is easy to miss and silently breaks every send.
       - openwa_data:/openwa-data:ro
+      # Optional: drop a Google service-account key here to enable private
+      # Sheet imports. Absent is fine — published-CSV sources need no key.
+      - ./secrets:/run/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,6 +125,9 @@ services:
       # Same read-only key share as web — the worker sends cadence messages
       # of its own, so it needs to authenticate to the gateway too.
       - openwa_data:/openwa-data:ro
+      # Optional: drop a Google service-account key here to enable private
+      # Sheet imports. Absent is fine — published-CSV sources need no key.
+      - ./secrets:/run/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
