@@ -70,7 +70,16 @@ export async function getWhatsAppStatusForUser(actor: CurrentUser) {
   });
 }
 
-/** Creates (if needed) and starts this user's OpenWA session, returning its QR. */
+/**
+ * Creates (if needed) and starts this user's OpenWA session, returning its QR.
+ *
+ * Starting is treated as idempotent. The gateway rejects a start on a
+ * session whose engine is already running — including one sitting in
+ * `disconnected` while it retries — and that rejection used to surface as
+ * a 502 "Session is already started", leaving a telecaller unable to get
+ * back to a QR from the Connect button. Wanting a started session and
+ * finding it already started is success, not failure.
+ */
 export async function connectWhatsAppForUser(actor: CurrentUser) {
   let session = await findWhatsAppSessionByUserId(actor.id);
 
@@ -79,10 +88,20 @@ export async function connectWhatsAppForUser(actor: CurrentUser) {
     session = await upsertWhatsAppSession(actor.id, { openwaSessionId: created.id, status: created.status });
   }
 
-  const started = await startOpenWASession(session.openwaSessionId);
-  await upsertWhatsAppSession(actor.id, { openwaSessionId: session.openwaSessionId, status: started.status });
+  try {
+    const started = await startOpenWASession(session.openwaSessionId);
+    await upsertWhatsAppSession(actor.id, { openwaSessionId: session.openwaSessionId, status: started.status });
+  } catch (error) {
+    if (!isAlreadyStartedError(error)) throw error;
+    // Already running — fall through and read its live status/QR below.
+  }
 
   return getQrForUser(actor);
+}
+
+/** The gateway's "you asked me to start something already running" refusal. */
+function isAlreadyStartedError(error: unknown) {
+  return error instanceof OpenWAError && /already\s+started/i.test(error.message);
 }
 
 /** Polls the current QR — a fresh scan target while status is "qr_ready", or a status-only read otherwise. */

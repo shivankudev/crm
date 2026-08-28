@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MessageCircle, RotateCcw, LogOut, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,25 @@ function shouldPoll(status: string) {
 }
 
 /**
+ * How closely to watch a link, and for how long after it first goes live.
+ *
+ * A scan is not the end of the story. Baileys opens the socket and reports
+ * ready, and WhatsApp then immediately closes it with 515 "restart
+ * required"; the gateway reconnects, and only that second connection
+ * decides whether the link actually holds. If the phone drops out during
+ * that window the session never comes back — and on a flat 30s heartbeat
+ * the panel sat on a confident "Connected" throughout, which is precisely
+ * the moment a telecaller is watching it to see whether their scan worked.
+ */
+const HEARTBEAT_SETTLING_MS = 4000;
+const HEARTBEAT_STEADY_MS = 30000;
+const SETTLE_WINDOW_MS = 90000;
+
+/** QR rotates roughly every 20s; re-read often enough that what's on screen stays scannable. */
+const QR_POLL_MS = 3000;
+const MAX_CONSECUTIVE_FAILURES = 5;
+
+/**
  * Per-telecaller WhatsApp connection card — "every telecaller gets its
  * own QR code to scan" (§ WhatsApp integration). Talks only to this
  * CRM's own /api/v1/whatsapp/* routes, which in turn talk to the OpenWA
@@ -45,91 +64,96 @@ export function WhatsAppWidget() {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  /** Last status the heartbeat saw, so we only react to actual transitions. */
-  const lastStatusRef = useRef<string | null>(null);
+  /**
+   * A live status seen on two separate checks, far enough apart to have
+   * survived the post-scan reconnect. Until then the panel says the link
+   * is still finishing rather than claiming one that may be seconds from
+   * collapsing.
+   */
+  const [confirmedLive, setConfirmedLive] = useState(false);
 
-  function stopPolling() {
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Last status ANY poll saw, so we only react to genuine transitions. */
+  const lastStatusRef = useRef<string | null>(null);
+  /** When the session first reported live, so the settling window can end. */
+  const liveSinceRef = useRef<number | null>(null);
+  /**
+   * Re-arms the heartbeat at whatever cadence now applies. Held in a ref
+   * because the moment the cadence needs to change — the QR poll seeing
+   * the link go live — happens inside a callback defined before the
+   * heartbeat itself.
+   */
+  const rearmHeartbeatRef = useRef<(() => void) | null>(null);
+
+  const stopPolling = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
-  }
+  }, []);
 
-  function stopHeartbeat() {
+  const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current) {
-      clearInterval(heartbeatRef.current);
+      clearTimeout(heartbeatRef.current);
       heartbeatRef.current = null;
     }
-  }
+  }, []);
 
   /**
-   * Liveness check that keeps running even while the device is happily
-   * linked. A WhatsApp device can drop on its own at any time — the phone
-   * goes offline for too long, someone removes it from Linked Devices, or
-   * WhatsApp expires the companion — and none of that produces any signal
-   * in the CRM. Without this the panel would keep showing a confident
-   * "Connected" while every message silently failed until someone
-   * happened to reload the page.
+   * The single place a status is recorded.
    *
-   * Slower than the QR poll (that one is racing a ~40s code rotation;
-   * this is just watching for a state change), and it hits
-   * /whatsapp/session, which re-reads the live status from OpenWA
-   * server-side rather than echoing our cached row.
+   * Every poll routes through here. The QR poll used to update the
+   * rendered status but not `lastStatusRef`, so after a scan the
+   * "previous" status stayed at qr_ready — and the later drop from ready
+   * was never seen as a live→dead transition, meaning no warning fired for
+   * the one failure a telecaller most needs to be told about.
    */
-  function startHeartbeat() {
-    stopHeartbeat();
-    heartbeatRef.current = setInterval(async () => {
-      const res = await fetch("/api/v1/whatsapp/session").catch(() => null);
-      if (!res || !res.ok) return; // transient — keep watching
-
-      const data = await res.json();
-      if (!data.session) return;
-
-      const next = data.session.status as string;
+  const recordStatus = useCallback(
+    (next: string, phone?: string | null) => {
       const prev = lastStatusRef.current;
       lastStatusRef.current = next;
+      const nowLive = isWhatsAppLive(next);
 
-      setSession({ status: next, phone: data.session.phone });
+      if (nowLive) {
+        if (liveSinceRef.current === null) liveSinceRef.current = Date.now();
+        else setConfirmedLive(true);
+      } else {
+        liveSinceRef.current = null;
+        setConfirmedLive(false);
+      }
 
-      if (prev && isWhatsAppLive(prev) && !isWhatsAppLive(next)) {
-        // Dropped while they were working — say so loudly, since the
-        // consequence (messages silently not sending) is invisible.
+      setSession((s) => ({ status: next, phone: phone ?? s?.phone ?? null }));
+
+      if (prev && isWhatsAppLive(prev) && !nowLive) {
         toast.error("WhatsApp disconnected — your automated messages are no longer being sent.");
       }
-      // Re-arm QR polling if it fell back into a scannable state.
-      if (isWhatsAppPending(next) && !pollRef.current) startPolling();
-    }, 30000);
-  }
+    },
+    [toast]
+  );
 
-  function startPolling() {
+  const startPolling = useCallback(() => {
     stopPolling();
 
     // WhatsApp rotates the QR roughly every 20s while it waits to be
-    // scanned, and OpenWA emits a fresh one on every rotation (its
-    // onQRCode handler re-persists QR_READY each time). GET /qr always
-    // returns the CURRENT one, so re-reading on this interval is what
-    // keeps the code on screen scannable instead of going stale and
+    // scanned, and OpenWA emits a fresh one on every rotation. GET /qr
+    // always returns the CURRENT one, so re-reading on this interval is
+    // what keeps the code on screen scannable instead of going stale and
     // silently failing when the telecaller finally points their phone at
     // it. Polling here (rather than subscribing to OpenWA's session.qr
-    // WebSocket, which is its own suggestion for dashboard clients)
-    // deliberately keeps the gateway API key server-side — the browser
-    // only ever talks to this CRM.
+    // WebSocket) deliberately keeps the gateway API key server-side — the
+    // browser only ever talks to this CRM.
     //
     // The cap counts CONSECUTIVE failures, never total polls: someone can
-    // legitimately sit on this screen for many minutes before scanning,
-    // and a total-attempt cap would freeze the QR at an expired image
-    // while still telling them to scan it.
+    // legitimately sit on this screen for minutes before scanning, and a
+    // total-attempt cap would freeze the QR at an expired image while
+    // still telling them to scan it.
     let consecutiveFailures = 0;
-    const MAX_CONSECUTIVE_FAILURES = 5;
 
     pollRef.current = setInterval(async () => {
       const res = await fetch("/api/v1/whatsapp/session/qr").catch(() => null);
 
       if (!res || !res.ok) {
-        // A removed session or an unreachable gateway fails every tick —
-        // stop rather than hammer it forever. A brief blip is tolerated.
         if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) stopPolling();
         return;
       }
@@ -139,76 +163,145 @@ export function WhatsAppWidget() {
       // Only swap the image when the code actually changed, so a QR that
       // hasn't rotated yet doesn't visibly flicker on every poll.
       setQrCode((prev) => (prev === data.qrCode ? prev : data.qrCode));
-      setSession((s) => ({ status: data.status, phone: s?.phone ?? null }));
-      if (!shouldPoll(data.status)) stopPolling();
-    }, 3000);
-  }
+      recordStatus(data.status);
+      if (!shouldPoll(data.status)) {
+        stopPolling();
+        // Hand over to the heartbeat at the cadence that now applies. The
+        // pending heartbeat was scheduled while the session was still
+        // pending, i.e. at the slow steady delay — without re-arming, a
+        // link that just went live would not be re-checked for another 30s
+        // and would sit on "Finishing link…" the whole time.
+        rearmHeartbeatRef.current?.();
+      }
+    }, QR_POLL_MS);
+  }, [recordStatus, stopPolling]);
+
+  /**
+   * Liveness check that keeps running even while the device is happily
+   * linked. A WhatsApp device can drop on its own at any time — the phone
+   * goes offline for too long, someone removes it from Linked Devices, or
+   * WhatsApp expires the companion — and none of that produces any signal
+   * in the CRM. Without this the panel would keep showing a confident
+   * "Connected" while every message silently failed until someone happened
+   * to reload the page.
+   *
+   * Self-rescheduling rather than a fixed interval so the cadence can
+   * tighten during the fragile window just after a link goes live, then
+   * relax once it has held. It hits /whatsapp/session, which re-reads the
+   * live status from OpenWA server-side rather than echoing our cached row.
+   */
+  const startHeartbeat = useCallback(() => {
+    stopHeartbeat();
+
+    const nextDelay = () => {
+      const since = liveSinceRef.current;
+      if (since !== null && Date.now() - since < SETTLE_WINDOW_MS) return HEARTBEAT_SETTLING_MS;
+      return HEARTBEAT_STEADY_MS;
+    };
+
+    const tick = async () => {
+      const res = await fetch("/api/v1/whatsapp/session").catch(() => null);
+      if (res && res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.session) {
+          recordStatus(data.session.status, data.session.phone);
+          // Re-arm QR polling if it fell back into a scannable state.
+          if (isWhatsAppPending(data.session.status) && !pollRef.current) startPolling();
+        }
+      }
+      // Always reschedule — a transient failure must not end the watch.
+      heartbeatRef.current = setTimeout(tick, nextDelay());
+    };
+
+    rearmHeartbeatRef.current = () => {
+      stopHeartbeat();
+      heartbeatRef.current = setTimeout(tick, nextDelay());
+    };
+
+    heartbeatRef.current = setTimeout(tick, nextDelay());
+  }, [recordStatus, startPolling, stopHeartbeat]);
 
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/v1/whatsapp/session")
       .then((r) => r.json())
       .then((data) => {
-        setSession(data.session ? { status: data.session.status, phone: data.session.phone } : null);
+        if (cancelled) return;
         if (data.session) {
+          setSession({ status: data.session.status, phone: data.session.phone });
           lastStatusRef.current = data.session.status;
+          if (isWhatsAppLive(data.session.status)) {
+            // Already linked when the page opened, so it has plainly held —
+            // no need to make them watch a "finishing" state.
+            liveSinceRef.current = 0;
+            setConfirmedLive(true);
+          }
           if (shouldPoll(data.session.status)) startPolling();
           // Runs in every state, including a healthy one — this is what
           // catches a device that drops later.
           startHeartbeat();
         }
       })
-      .finally(() => setLoading(false));
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
+      cancelled = true;
       stopPolling();
       stopHeartbeat();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [startPolling, startHeartbeat, stopPolling, stopHeartbeat]);
 
   async function connect() {
     setBusy(true);
-    const res = await fetch("/api/v1/whatsapp/session", { method: "POST" });
-    const data = await res.json().catch(() => ({}));
+    const res = await fetch("/api/v1/whatsapp/session", { method: "POST" }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
     setBusy(false);
-    if (!res.ok) {
+    if (!res || !res.ok) {
       toast.error(data.error ?? "Failed to start WhatsApp connection");
       return;
     }
     setQrCode(data.qrCode);
-    setSession({ status: data.status, phone: null });
-    lastStatusRef.current = data.status;
+    recordStatus(data.status);
     if (shouldPoll(data.status)) startPolling();
     startHeartbeat();
   }
 
   async function refreshQr() {
     setBusy(true);
-    const res = await fetch("/api/v1/whatsapp/session/refresh", { method: "POST" });
-    const data = await res.json().catch(() => ({}));
+    const res = await fetch("/api/v1/whatsapp/session/refresh", { method: "POST" }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
     setBusy(false);
-    if (!res.ok) {
+    if (!res || !res.ok) {
       toast.error(data.error ?? "Failed to refresh QR code");
       return;
     }
     setQrCode(data.qrCode);
-    setSession((s) => ({ status: data.status, phone: s?.phone ?? null }));
-    lastStatusRef.current = data.status;
+    recordStatus(data.status);
     if (shouldPoll(data.status)) startPolling();
+    // Restarting a session used to leave the watch un-armed if the page had
+    // been opened with no session at all, so a link made this way was never
+    // monitored afterwards.
+    startHeartbeat();
   }
 
   async function logout() {
     setBusy(true);
-    const res = await fetch("/api/v1/whatsapp/session", { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
+    const res = await fetch("/api/v1/whatsapp/session", { method: "DELETE" }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
     setBusy(false);
     stopPolling();
-    if (!res.ok) {
+    if (!res || !res.ok) {
       toast.error(data.error ?? "Failed to log out of WhatsApp");
       return;
     }
     stopHeartbeat();
-    lastStatusRef.current = data.session.status;
     setQrCode(null);
+    // Deliberate: no "disconnected" warning for a logout they just asked for.
+    lastStatusRef.current = data.session.status;
+    liveSinceRef.current = null;
+    setConfirmedLive(false);
     setSession({ status: data.session.status, phone: null });
     toast.success("Logged out of WhatsApp.");
   }
@@ -222,22 +315,26 @@ export function WhatsAppWidget() {
   }
 
   const status = session?.status ?? "disconnected";
-  const isConnected = isWhatsAppLive(status);
+  const statusIsLive = isWhatsAppLive(status);
+  // "Connected" is claimed only once the link has actually held — see
+  // confirmedLive. Everything else (QR, warnings) keys off the raw status.
+  const showAsConnected = statusIsLive && confirmedLive;
+  const label = statusIsLive && !confirmedLive ? "Finishing link…" : (STATUS_LABELS[status] ?? status);
 
   return (
     <Card className="mt-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div
-            className={`flex h-9 w-9 items-center justify-center rounded-lg ${isConnected ? "bg-chip-pos/10 text-chip-pos" : "bg-slate-100 text-slate-400"}`}
+            className={`flex h-9 w-9 items-center justify-center rounded-lg ${showAsConnected ? "bg-chip-pos/10 text-chip-pos" : "bg-slate-100 text-slate-400"}`}
           >
             <MessageCircle size={17} strokeWidth={2.25} />
           </div>
           <div>
             <p className="text-sm font-medium text-slate-900">WhatsApp</p>
             <p className="text-xs text-slate-500">
-              {STATUS_LABELS[status] ?? status}
-              {isConnected && session?.phone ? ` · ${session.phone}` : ""}
+              {label}
+              {showAsConnected && session?.phone ? ` · ${session.phone}` : ""}
             </p>
           </div>
         </div>
@@ -248,7 +345,7 @@ export function WhatsAppWidget() {
               Connect WhatsApp
             </Button>
           )}
-          {session && !isConnected && (
+          {session && !statusIsLive && (
             <Button size="sm" variant="secondary" icon={RotateCcw} onClick={refreshQr} disabled={busy}>
               Refresh QR
             </Button>
@@ -261,8 +358,8 @@ export function WhatsAppWidget() {
         </div>
       </div>
 
-      {!isConnected && session && !qrCode && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-chip-neg/25 bg-chip-neg/5 px-3 py-2.5 text-xs text-chip-neg">
+      {!statusIsLive && session && !qrCode && (
+        <div className="border-chip-neg/25 bg-chip-neg/5 text-chip-neg mt-3 flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>
             WhatsApp isn&apos;t linked, so automated messages to your leads are <strong>not being sent</strong>.
@@ -271,14 +368,18 @@ export function WhatsAppWidget() {
         </div>
       )}
 
-      {qrCode && !isConnected && (
+      {qrCode && !statusIsLive && (
         <div className="mt-4 flex flex-col items-center gap-2 border-t border-slate-100 pt-4">
           {/* eslint-disable-next-line @next/next/no-img-element -- a data: URI, not a static/remote asset Next's image pipeline handles */}
-          <img src={qrCode} alt="WhatsApp QR code" width={200} height={200} className="rounded-lg border border-slate-200" />
+          <img
+            src={qrCode}
+            alt="WhatsApp QR code"
+            width={200}
+            height={200}
+            className="rounded-lg border border-slate-200"
+          />
           <p className="text-xs text-slate-500">Open WhatsApp on your phone → Linked Devices → Link a Device</p>
-          <p className="text-xs text-slate-400">
-            This code refreshes on its own — always scan whatever is showing.
-          </p>
+          <p className="text-xs text-slate-400">This code refreshes on its own — always scan whatever is showing.</p>
         </div>
       )}
     </Card>
