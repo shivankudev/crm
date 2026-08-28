@@ -70,6 +70,8 @@ export const changeLeadStatusSchema = z.object({
 });
 
 export const logCallSchema = z.object({
+  /** Who rang whom — see CallActivity.direction. */
+  direction: z.enum(["OUTBOUND", "INBOUND"]).default("OUTBOUND"),
   phoneUsed: requiredPhone(),
   callStatus: z.enum([
     "CONNECTED",

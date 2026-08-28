@@ -10,7 +10,11 @@ import { requiredPhone } from "@/lib/validation/phone";
  */
 export const logTelecallingOutcomeSchema = z.object({
   leadId: z.string().min(1),
-  followUpId: z.string().min(1).nullable(),
+  // Optional entirely: a call logged from the lead's own page (an inbound
+  // callback, say) has no queue context, and the server finds the open
+  // follow-up itself.
+  followUpId: z.string().min(1).nullable().optional(),
+  direction: z.enum(["OUTBOUND", "INBOUND"]).default("OUTBOUND"),
   resultId: z.string().min(1),
   phoneUsed: requiredPhone(),
   notes: z.string().trim().max(2000).optional(),

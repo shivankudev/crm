@@ -16,6 +16,7 @@ export async function logCall(leadId: string, input: LogCallInput, actor: Curren
     durationSecs: input.durationSecs,
     notes: input.notes,
     nextFollowupAt: input.nextFollowupAt,
+    direction: input.direction,
   });
 
   await updateLead(leadId, { lastContactAt: new Date() });

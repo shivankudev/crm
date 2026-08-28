@@ -281,6 +281,10 @@ model CallActivity {
   user           User      @relation(fields: [userId], references: [id])
   phoneUsed      String
   callStatus     String // CONNECTED, NOT_CONNECTED, BUSY, SWITCHED_OFF, WRONG_NUMBER, CALL_BACK...
+  /// OUTBOUND (the telecaller rang the lead) or INBOUND (the lead rang back).
+  /// A lead who returns a missed call is a different, better signal than one
+  /// we chased, and reports could not tell them apart before.
+  direction      String    @default("OUTBOUND")
   durationSecs   Int?
   notes          String?
   nextFollowupAt DateTime?

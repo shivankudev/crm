@@ -12,6 +12,7 @@ import { logCall } from "@/services/call.service";
 import { updateFollowUpForUser } from "@/services/followup.service";
 import { changeLeadStatus, LeadServiceError } from "@/services/lead.service";
 import { sendWhatsAppForOutcome } from "@/services/whatsapp.service";
+import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/auth/current-user";
 
 export type QueueItemKind = "OVERDUE_FOLLOWUP" | "TODAY_FOLLOWUP" | "NEW_LEAD";
@@ -202,22 +203,59 @@ const DEFAULT_OUTCOME_RULE: OutcomeRule = { callStatus: "CONNECTED", behavior: "
  * separate client calls) so a STOP result can't accidentally schedule a
  * next follow-up, and a RETRY_TODAY one can't get completed by mistake.
  */
+/**
+ * The lead's currently-owed follow-up, if any — whichever is due soonest
+ * among those still outstanding, so a lead with a backlog settles the
+ * oldest one first rather than an arbitrary row.
+ */
+async function resolveOpenFollowUpId(leadId: string): Promise<string | null> {
+  const open = await prisma.followUp.findFirst({
+    where: { leadId, status: { in: ["PENDING", "OVERDUE"] } },
+    orderBy: [{ scheduledDate: "asc" }, { scheduledTime: "asc" }],
+    select: { id: true },
+  });
+  return open?.id ?? null;
+}
+
 export async function logTelecallingOutcome(
   actor: CurrentUser,
   input: {
     leadId: string;
-    followUpId: string | null;
+    /**
+     * The queue passes the follow-up it served. A call logged from the lead's
+     * own page passes undefined, and the open follow-up is looked up instead
+     * — see resolveFollowUpId.
+     */
+    followUpId?: string | null;
     resultId: string;
     phoneUsed: string;
     notes?: string;
     continueFollowUp: boolean;
+    /** INBOUND when the lead rang back rather than being called. */
+    direction?: "OUTBOUND" | "INBOUND";
   }
 ) {
   const result = await findResultOptionById(input.resultId);
   if (!result) throw new LeadServiceError("Result option not found");
   const rule = OUTCOME_RULES[result.name] ?? DEFAULT_OUTCOME_RULE;
 
-  await logCall(input.leadId, { phoneUsed: input.phoneUsed, callStatus: rule.callStatus, notes: input.notes }, actor);
+  // A lead who was marked unreachable and later rings back is the case this
+  // exists for. Recording that conversation has to settle the follow-up that
+  // was already owed, or the work is done and the lead still shows as
+  // overdue forever — which is how a queue quietly fills with hundreds of
+  // items nobody can clear.
+  const followUpId = input.followUpId ?? (await resolveOpenFollowUpId(input.leadId));
+
+  await logCall(
+    input.leadId,
+    {
+      phoneUsed: input.phoneUsed,
+      callStatus: rule.callStatus,
+      notes: input.notes,
+      direction: input.direction ?? "OUTBOUND",
+    },
+    actor
+  );
 
   // Best-effort, fire-and-forget — a telecaller's own WhatsApp template for
   // this exact outcome, sent from their own linked number. Never awaited:
@@ -225,9 +263,9 @@ export async function logTelecallingOutcome(
   // WhatsApp gateway must not add latency to logging a call.
   void sendWhatsAppForOutcome(actor.id, input.phoneUsed, result.name, input.leadId);
 
-  if (input.followUpId && rule.behavior !== "RETRY_TODAY") {
+  if (followUpId && rule.behavior !== "RETRY_TODAY") {
     await updateFollowUpForUser(
-      input.followUpId,
+      followUpId,
       {
         action: "complete",
         resultId: input.resultId,

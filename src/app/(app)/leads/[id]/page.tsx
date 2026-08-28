@@ -115,6 +115,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         id: c.id,
         phoneUsed: c.phoneUsed,
         callStatus: c.callStatus,
+          direction: c.direction,
         durationSecs: c.durationSecs,
         notes: c.notes,
         user: c.user,

@@ -65,6 +65,7 @@ type Call = {
   id: string;
   phoneUsed: string;
   callStatus: string;
+  direction?: string;
   durationSecs: number | null;
   notes: string | null;
   user: { id: string; name: string };
@@ -173,7 +174,15 @@ export function LeadProfile({
           <InfoTab lead={lead} sources={sources} states={states} assignableUsers={assignableUsers} canAssign={canAssign} />
         )}
         {tab === "Timeline" && <TimelineTab activity={activity} />}
-        {tab === "Calls" && <CallsTab leadId={lead.id} calls={calls} canLogCall={canLogCall} />}
+        {tab === "Calls" && (
+          <CallsTab
+            leadId={lead.id}
+            leadPhone={lead.phone}
+            calls={calls}
+            canLogCall={canLogCall}
+            results={results}
+          />
+        )}
         {tab === "Follow-ups" && (
           <FollowUpsTab
             leadId={lead.id}
@@ -615,91 +624,145 @@ function TimelineTab({ activity }: { activity: Activity[] }) {
   return <Timeline entries={activity} labels={ACTIVITY_LABELS} icons={ACTIVITY_ICONS} />;
 }
 
-function CallsTab({ leadId, calls, canLogCall }: { leadId: string; calls: Call[]; canLogCall: boolean }) {
+/**
+ * Outcome colours, matching the calling screen exactly. A telecaller who
+ * learns "green means reached and interested" at the queue must not meet a
+ * different scheme here.
+ */
+const OUTCOME_STYLES: Record<string, string> = {
+  "Connected - Interested":
+    "border-chip-pos/35 bg-chip-pos/10 text-chip-pos hover:bg-chip-pos/20 hover:border-chip-pos/60",
+  "Connected - Not Interested":
+    "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-400",
+  "Not Reachable": "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 hover:border-slate-400",
+  "Wrong Number": "border-chip-neg/35 bg-chip-neg/10 text-chip-neg hover:bg-chip-neg/20 hover:border-chip-neg/60",
+  "Call Back Later": "border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 hover:border-brand-400",
+};
+const DEFAULT_OUTCOME_STYLE =
+  "border-slate-300 bg-white text-slate-700 hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700";
+
+/**
+ * Logging a call from the lead's own page.
+ *
+ * This used to write a bare call record and nothing else — no outcome, no
+ * follow-up completed, no status change. So the very case it is most used
+ * for, a lead ringing back after being marked unreachable, left the
+ * follow-up owed forever however well the conversation went. It now goes
+ * through the same path the calling queue uses, so a call answered here
+ * settles the work exactly as one answered there does.
+ */
+function CallsTab({
+  leadId,
+  leadPhone,
+  calls,
+  canLogCall,
+  results,
+}: {
+  leadId: string;
+  leadPhone: string;
+  calls: Call[];
+  canLogCall: boolean;
+  results: Option[];
+}) {
   const router = useRouter();
-  const [phoneUsed, setPhoneUsed] = useState("");
-  const [callStatus, setCallStatus] = useState("CONNECTED");
-  const [durationSecs, setDurationSecs] = useState("");
+  // Defaults to inbound: outbound calls are logged from the calling queue,
+  // so someone reaching for this form is usually recording a call that came
+  // in.
+  const [direction, setDirection] = useState<"INBOUND" | "OUTBOUND">("INBOUND");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
+  async function logOutcome(result: Option) {
+    setSubmitting(result.id);
     setError(null);
-    const res = await fetch(`/api/v1/leads/${leadId}/calls`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phoneUsed,
-        callStatus,
-        durationSecs: durationSecs ? Number(durationSecs) : undefined,
-        notes: notes || undefined,
-      }),
-    });
-    const data = await res.json();
-    setSubmitting(false);
-    if (!res.ok) {
-      setError(data.error ?? "Something went wrong");
-      return;
+    try {
+      const res = await fetch("/api/v1/telecalling/log-outcome", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId,
+          // No followUpId: the server finds whatever this lead currently owes.
+          resultId: result.id,
+          phoneUsed: leadPhone,
+          notes: notes || undefined,
+          direction,
+          continueFollowUp: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Couldn't log that call");
+        return;
+      }
+      setNotes("");
+      router.refresh();
+    } catch {
+      setError("Couldn't reach the server — check your connection.");
+    } finally {
+      setSubmitting(null);
     }
-    setPhoneUsed("");
-    setNotes("");
-    router.refresh();
   }
 
   return (
     <div className="space-y-4">
       {canLogCall && (
-        <form onSubmit={submit} className="space-y-2 rounded-lg border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(10,11,16,0.04)] p-4">
+        <div className="rounded-lg border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(10,11,16,0.04)]">
           <p className="text-sm font-medium text-slate-900">Log a call</p>
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              required
-              placeholder="Phone used"
-              value={phoneUsed}
-              onChange={(e) => setPhoneUsed(e.target.value)}
-              className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-            />
-            <select
-              value={callStatus}
-              onChange={(e) => setCallStatus(e.target.value)}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-            >
-              {["CONNECTED", "NOT_CONNECTED", "BUSY", "SWITCHED_OFF", "WRONG_NUMBER", "CALL_BACK"].map((s) => (
-                <option key={s} value={s}>
-                  {s.replaceAll("_", " ")}
-                </option>
-              ))}
-            </select>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Records the outcome and settles whatever follow-up this lead owes — the same as logging it from the
+            calling screen.
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(
+              [
+                { key: "INBOUND", label: "They called us" },
+                { key: "OUTBOUND", label: "We called them" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setDirection(opt.key)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                  direction === opt.key
+                    ? "border-brand-500 bg-brand-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-          <input
-            type="number"
-            min={0}
-            placeholder="Duration (seconds, optional)"
-            value={durationSecs}
-            onChange={(e) => setDurationSecs(e.target.value)}
-            className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-          />
+
           <textarea
-            placeholder="Notes"
+            placeholder="Notes (optional)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            className="focus:border-brand-400 focus:ring-brand-100 mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:ring-2"
           />
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
-            >
-              {submitting ? "Saving…" : "Log call"}
-            </button>
+
+          <p className="mt-3 mb-2 text-[10px] font-semibold tracking-wide text-slate-500 uppercase">
+            How did it go?
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {results.map((r) => (
+              <button
+                key={r.id}
+                disabled={submitting !== null}
+                onClick={() => logOutcome(r)}
+                className={`rounded-lg border px-3 py-2 text-xs font-semibold shadow-sm transition disabled:opacity-50 ${
+                  OUTCOME_STYLES[r.name] ?? DEFAULT_OUTCOME_STYLE
+                }`}
+              >
+                {submitting === r.id ? "Saving…" : r.name}
+              </button>
+            ))}
           </div>
-        </form>
+
+          {error && <p className="text-chip-neg mt-2 text-xs">{error}</p>}
+        </div>
       )}
 
       {calls.length === 0 ? (
@@ -709,7 +772,16 @@ function CallsTab({ leadId, calls, canLogCall }: { leadId: string; calls: Call[]
           {calls.map((c) => (
             <li key={c.id} className="rounded-lg border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(10,11,16,0.04)] p-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="font-medium text-slate-900">{c.callStatus.replaceAll("_", " ")}</span>
+                <span className="flex items-center gap-1.5 font-medium text-slate-900">
+                  {/* Which way the call went matters when reading history: a
+                      lead who rang back is a warmer signal than one we chased. */}
+                  {c.direction === "INBOUND" && (
+                    <span className="bg-chip-pos/10 text-chip-pos rounded px-1.5 py-0.5 text-[10px] font-semibold">
+                      They called
+                    </span>
+                  )}
+                  {c.callStatus.replaceAll("_", " ")}
+                </span>
                 <span className="text-xs text-slate-400">{formatDateTime(c.createdAt)}</span>
               </div>
               <p className="text-slate-500">
