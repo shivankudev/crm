@@ -39,29 +39,26 @@ export async function getTelecallingQueueForUser(actor: CurrentUser) {
     listUnworkedNewLeadsForUser(actor.id),
   ]);
 
+  const toFollowUpItem = (kind: QueueItemKind) => (f: (typeof overdue)[number]) => ({
+    kind,
+    followUpId: f.id,
+    sequenceNumber: f.sequenceNumber,
+    scheduledDate: f.scheduledDate.toISOString(),
+    scheduledTime: f.scheduledTime,
+    notes: f.notes,
+    lead: serializeLead(f.lead!),
+  });
+
+  /**
+   * Today's work first, the backlog after it.
+   *
+   * A fresh enquiry goes cold within hours, and a follow-up promised for
+   * today was promised for today — both lose most of their value sitting
+   * behind a backlog that can run to hundreds of items. Overdue work is
+   * still served, and still counted; it just stops crowding out the calls
+   * worth most right now.
+   */
   const items = [
-    ...overdue
-      .filter((f) => f.lead)
-      .map((f) => ({
-        kind: "OVERDUE_FOLLOWUP" as QueueItemKind,
-        followUpId: f.id,
-        sequenceNumber: f.sequenceNumber,
-        scheduledDate: f.scheduledDate.toISOString(),
-        scheduledTime: f.scheduledTime,
-        notes: f.notes,
-        lead: serializeLead(f.lead!),
-      })),
-    ...dueToday
-      .filter((f) => f.lead)
-      .map((f) => ({
-        kind: "TODAY_FOLLOWUP" as QueueItemKind,
-        followUpId: f.id,
-        sequenceNumber: f.sequenceNumber,
-        scheduledDate: f.scheduledDate.toISOString(),
-        scheduledTime: f.scheduledTime,
-        notes: f.notes,
-        lead: serializeLead(f.lead!),
-      })),
     ...newLeads.map((lead) => ({
       kind: "NEW_LEAD" as QueueItemKind,
       followUpId: null,
@@ -71,10 +68,27 @@ export async function getTelecallingQueueForUser(actor: CurrentUser) {
       notes: null,
       lead: serializeLead(lead),
     })),
+    ...dueToday.filter((f) => f.lead).map(toFollowUpItem("TODAY_FOLLOWUP")),
+    ...overdue.filter((f) => f.lead).map(toFollowUpItem("OVERDUE_FOLLOWUP")),
   ];
 
+  // The two follow-up queries can in principle return the same row — the
+  // overdue one matches on status alone, today's on date — and a lead could
+  // otherwise appear under two kinds. Nothing produces that overlap in the
+  // current data, but ringing the same person twice is a bad enough outcome
+  // to guard against rather than assume it stays true.
+  const seenFollowUps = new Set<string>();
+  const seenLeads = new Set<string>();
+  const deduped = items.filter((item) => {
+    if (item.followUpId && seenFollowUps.has(item.followUpId)) return false;
+    if (seenLeads.has(item.lead.id)) return false;
+    if (item.followUpId) seenFollowUps.add(item.followUpId);
+    seenLeads.add(item.lead.id);
+    return true;
+  });
+
   return {
-    items,
+    items: deduped,
     counts: { overdue: overdue.length, today: dueToday.length, newLeads: newLeads.length },
   };
 }
