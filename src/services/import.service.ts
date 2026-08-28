@@ -1,5 +1,5 @@
 import { parseCsvWithHeader } from "@/lib/csv";
-import { normalizePhone } from "@/lib/phone";
+import { canonicalizePhone, normalizePhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { can, ForbiddenError } from "@/lib/rbac/can";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -80,7 +80,9 @@ export async function previewLeadImport(csvText: string, actor: CurrentUser) {
       raw[key] ?? raw[Object.keys(raw).find((k) => k.toLowerCase() === key) ?? ""] ?? "";
 
     const name = get("name").trim();
-    const phone = get("phone").trim();
+    // Canonicalised here too, so a CSV column of "+91 98765 43210" lands in
+    // the same shape as the same number typed into the New Lead form.
+    const phone = canonicalizePhone(get("phone").trim());
     const errors: string[] = [];
     if (!name) errors.push("Missing name");
     if (!phone || phone.replace(/\D/g, "").length < 6) errors.push("Missing or invalid phone");

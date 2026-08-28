@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canonicalizePhone } from "@/lib/phone";
 
 /**
  * Phone fields, validated on digit count rather than raw length.
@@ -18,9 +19,21 @@ const MAX_LENGTH = 20;
 const hasEnoughDigits = (v: string) => v.replace(/\D/g, "").length >= MIN_DIGITS;
 const DIGITS_MESSAGE = `Must contain at least ${MIN_DIGITS} digits`;
 
-/** A phone that must be present and dialable. */
+/**
+ * A phone that must be present and dialable.
+ *
+ * Transformed as well as validated: whatever shape it arrives in, it is
+ * stored in the single canonical form, so the same number typed
+ * "+91 98765 43210" or "098765-43210" lands identically.
+ */
 export function requiredPhone() {
-  return z.string().trim().min(1).max(MAX_LENGTH).refine(hasEnoughDigits, DIGITS_MESSAGE);
+  return z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_LENGTH)
+    .refine(hasEnoughDigits, DIGITS_MESSAGE)
+    .transform(canonicalizePhone);
 }
 
 /**
@@ -32,5 +45,8 @@ export function optionalPhone() {
     .string()
     .trim()
     .max(MAX_LENGTH)
-    .refine((v) => v === "" || hasEnoughDigits(v), DIGITS_MESSAGE);
+    .refine((v) => v === "" || hasEnoughDigits(v), DIGITS_MESSAGE)
+    // "" stays "" — canonicalising it would be a no-op anyway, but being
+    // explicit keeps a cleared field distinguishable from an unset one.
+    .transform((v) => (v === "" ? "" : canonicalizePhone(v)));
 }

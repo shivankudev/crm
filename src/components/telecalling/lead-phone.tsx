@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Phone, Check, X } from "lucide-react";
 import { copyToClipboard } from "@/components/ui/copy-button";
+import { formatPhoneForDisplay } from "@/lib/phone";
 
 /**
  * The lead's number on the calling screen — the one value a caller has to
@@ -48,12 +49,13 @@ function PhoneLink({ value, primary = false }: { value: string; primary?: boolea
       title="Tap to call — also copies the number"
       className={
         primary
-          ? "text-brand-800 hover:text-brand-900 flex items-center gap-2 font-mono text-xl font-semibold tracking-wide tabular-nums"
+          ? "text-brand-800 hover:text-brand-900 flex items-center gap-2 font-mono text-xl font-semibold tracking-wide whitespace-nowrap tabular-nums"
           : "hover:text-brand-700 flex items-center gap-1.5 font-mono text-xs font-medium text-slate-700 tabular-nums"
       }
     >
       {primary && <Phone size={17} strokeWidth={2.25} className="text-brand-500 shrink-0" />}
-      {value}
+      {/* Grouped purely for reading — tel: and the copy use the raw digits. */}
+      {formatPhoneForDisplay(value)}
       {state === "copied" ? (
         <span className="text-chip-pos flex shrink-0 items-center gap-0.5 font-sans text-[11px] font-medium">
           <Check size={12} strokeWidth={3} />
