@@ -75,8 +75,8 @@ export function WhatsAppConnectionReminder({ enabled }: { enabled: boolean }) {
   const neverConnected = status === null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+    <div className="motion-fade fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
+      <div className="motion-pop w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
         <div className="flex items-start gap-3">
           <div className="bg-chip-neg/10 text-chip-neg flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
             <AlertTriangle size={17} strokeWidth={2.25} />

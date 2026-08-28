@@ -17,7 +17,16 @@ export type KanbanLead = {
   assignedUser: { id: string; name: string } | null;
 };
 
-export function KanbanCard({ lead, disabled }: { lead: KanbanLead; disabled: boolean }) {
+export function KanbanCard({
+  lead,
+  disabled,
+  overlay,
+}: {
+  lead: KanbanLead;
+  disabled: boolean;
+  /** The floating copy dnd-kit renders under the pointer while dragging. */
+  overlay?: boolean;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
     disabled,
@@ -34,9 +43,11 @@ export function KanbanCard({ lead, disabled }: { lead: KanbanLead; disabled: boo
       {...listeners}
       {...attributes}
       className={clsx(
-        "rounded-lg border border-slate-200/80 bg-white p-3 text-sm shadow-[0_1px_2px_rgba(10,11,16,0.04)] transition",
-        !disabled && "cursor-grab hover:border-slate-300 hover:shadow-[0_4px_10px_rgba(10,11,16,0.06)] active:cursor-grabbing",
-        isDragging && "opacity-50"
+        "rounded-lg border border-slate-200/80 bg-white p-3 text-sm shadow-[0_1px_2px_rgba(10,11,16,0.04)] transition duration-150",
+        !disabled &&
+          "cursor-grab hover:-translate-y-px hover:border-slate-300 hover:shadow-[0_4px_10px_rgba(10,11,16,0.06)] active:cursor-grabbing",
+        isDragging && !overlay && "opacity-40",
+        overlay && "rotate-2 scale-[1.03] cursor-grabbing border-brand-300 shadow-[0_16px_32px_-8px_rgba(10,11,16,0.22)]"
       )}
     >
       <div className="flex items-start justify-between gap-2">

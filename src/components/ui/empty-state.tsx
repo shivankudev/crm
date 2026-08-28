@@ -22,7 +22,7 @@ export function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+    <div className="motion-rise flex flex-col items-center justify-center px-6 py-14 text-center">
       <div className="bg-brand-50 text-brand-500 flex h-11 w-11 items-center justify-center rounded-lg">
         <Icon size={20} strokeWidth={1.75} />
       </div>

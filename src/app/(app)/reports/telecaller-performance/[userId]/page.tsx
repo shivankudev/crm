@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import clsx from "clsx";
 import { ArrowLeft, TrendingUp } from "lucide-react";
 import { requireUser } from "@/lib/auth/current-user";
 import { getTelecallerPerformanceDetail, TelecallerNotFoundError } from "@/services/reports.service";
@@ -97,19 +98,20 @@ export default async function TelecallerPerformanceDetailPage({
           <div className="mt-4 space-y-3">
             <div className="flex items-center gap-3">
               <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                <div className="flex h-full">
-                  <div
-                    className="h-full bg-chip-pos"
-                    style={{ width: `${(detail.calls.connected / detail.calls.total) * 100}%` }}
-                  />
-                  <div
-                    className="h-full bg-brand-500"
-                    style={{ width: `${(detail.calls.callBack / detail.calls.total) * 100}%` }}
-                  />
-                  <div
-                    className="h-full bg-slate-300"
-                    style={{ width: `${(detail.calls.notConnected / detail.calls.total) * 100}%` }}
-                  />
+                <div className="flex h-full gap-0.5">
+                  {[
+                    { value: detail.calls.connected, className: "bg-chip-pos" },
+                    { value: detail.calls.callBack, className: "bg-brand-500" },
+                    { value: detail.calls.notConnected, className: "bg-slate-300" },
+                  ]
+                    .filter((seg) => seg.value > 0)
+                    .map((seg, i) => (
+                      <div
+                        key={i}
+                        className={clsx("h-full first:rounded-l-full last:rounded-r-full", seg.className)}
+                        style={{ width: `${(seg.value / detail.calls.total) * 100}%` }}
+                      />
+                    ))}
                 </div>
               </div>
               <span className="tnum text-xs font-medium text-slate-500">{connectRate}% connected</span>

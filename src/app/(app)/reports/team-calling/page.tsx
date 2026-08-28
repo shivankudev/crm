@@ -106,9 +106,9 @@ export default async function TeamCallingReportPage() {
                       <span className="text-sm text-slate-300">—</span>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-brand-500/10">
                           <div
-                            className={rate30 >= 50 ? "h-full bg-chip-pos" : "h-full bg-brand-500"}
+                            className={rate30 >= 50 ? "h-full rounded-full bg-chip-pos" : "h-full rounded-full bg-brand-500"}
                             style={{ width: `${rate30}%` }}
                           />
                         </div>

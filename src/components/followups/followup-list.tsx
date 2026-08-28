@@ -42,9 +42,9 @@ export function FollowUpList({
   }
 
   return (
-    <ul className="space-y-2">
-      {items.map((item) => (
-        <FollowUpListRow key={item.id} item={item} results={results} />
+    <ul className="motion-stagger space-y-2">
+      {items.map((item, i) => (
+        <FollowUpListRow key={item.id} item={item} results={results} index={i} />
       ))}
     </ul>
   );
@@ -56,7 +56,7 @@ const ACTION_SUCCESS_MESSAGE: Record<string, string> = {
   cancel: "Follow-up cancelled.",
 };
 
-function FollowUpListRow({ item, results }: { item: FollowUpListItem; results: Option[] }) {
+function FollowUpListRow({ item, results, index }: { item: FollowUpListItem; results: Option[]; index: number }) {
   const router = useRouter();
   const toast = useToast();
   const [mode, setMode] = useState<"idle" | "complete" | "reschedule">("idle");
@@ -96,7 +96,10 @@ function FollowUpListRow({ item, results }: { item: FollowUpListItem; results: O
   const subjectPhone = subject?.phone;
 
   return (
-    <li className="rounded-lg border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(10,11,16,0.04)] p-4 text-sm">
+    <li
+      style={{ "--i": Math.min(index, 10) } as React.CSSProperties}
+      className="rounded-lg border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(10,11,16,0.04)] p-4 text-sm"
+    >
       <div className="flex items-start justify-between">
         <div>
           {subjectHref ? (

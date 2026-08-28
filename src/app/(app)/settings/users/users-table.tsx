@@ -257,8 +257,8 @@ function CreateUserModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+    <div className="motion-fade fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
+      <div className="motion-pop w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
         <h2 className="text-base font-semibold text-slate-900">Add user</h2>
         <form onSubmit={handleSubmit} className="mt-4 space-y-3">
           <input
@@ -350,8 +350,8 @@ function ResetPasswordModal({ user, onClose }: { user: UserRow; onClose: () => v
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+    <div className="motion-fade fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
+      <div className="motion-pop w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
         <div className="flex items-center gap-2.5">
           <div className="bg-brand-50 text-brand-600 flex h-9 w-9 items-center justify-center rounded-lg">
             <KeyRound size={17} strokeWidth={2.25} />
@@ -468,8 +468,8 @@ function DeleteUserModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+    <div className="motion-fade fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
+      <div className="motion-pop w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-chip-neg/10 text-chip-neg">
             <AlertTriangle size={17} strokeWidth={2.25} />

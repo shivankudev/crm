@@ -57,12 +57,12 @@ function PhoneLink({ value, primary = false }: { value: string; primary?: boolea
       {/* Grouped purely for reading — tel: and the copy use the raw digits. */}
       {formatPhoneForDisplay(value)}
       {state === "copied" ? (
-        <span className="text-chip-pos flex shrink-0 items-center gap-0.5 font-sans text-[11px] font-medium">
+        <span className="motion-pop text-chip-pos flex shrink-0 items-center gap-0.5 font-sans text-[11px] font-medium">
           <Check size={12} strokeWidth={3} />
           Copied
         </span>
       ) : state === "failed" ? (
-        <span className="text-chip-neg flex shrink-0 items-center gap-0.5 font-sans text-[11px] font-medium">
+        <span className="motion-pop text-chip-neg flex shrink-0 items-center gap-0.5 font-sans text-[11px] font-medium">
           <X size={12} strokeWidth={3} />
           Copy blocked
         </span>

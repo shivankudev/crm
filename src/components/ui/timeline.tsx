@@ -29,12 +29,16 @@ export function Timeline({
   }
 
   return (
-    <ol className="relative">
+    <ol className="motion-stagger relative">
       {entries.map((entry, i) => {
         const Icon = icons[entry.type] ?? Sparkles;
         const isLast = i === entries.length - 1;
         return (
-          <li key={entry.id} className="relative flex gap-3 pb-5 last:pb-0">
+          <li
+            key={entry.id}
+            style={{ "--i": Math.min(i, 8) } as React.CSSProperties}
+            className="relative flex gap-3 pb-5 last:pb-0"
+          >
             {!isLast && (
               <span className="absolute top-8 left-[15px] h-[calc(100%-1.75rem)] w-px bg-slate-200" aria-hidden />
             )}

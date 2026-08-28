@@ -294,7 +294,7 @@ export function LeadsTable({
       />
 
       {selected.size > 0 && canAssign && (
-        <div className="bg-brand-600 mb-3 flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm text-white">
+        <div className="motion-fade bg-brand-600 mb-3 flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm text-white">
           <span className="font-medium">{selected.size} selected</span>
           <select
             disabled={reassigning}
@@ -342,7 +342,7 @@ export function LeadsTable({
               <th className="px-4 py-3">Created</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="motion-stagger">
             {initialLeads.length === 0 && (
               <tr>
                 <td colSpan={canAssign ? 8 : 7}>
@@ -354,8 +354,12 @@ export function LeadsTable({
                 </td>
               </tr>
             )}
-            {initialLeads.map((lead) => (
-              <tr key={lead.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+            {initialLeads.map((lead, i) => (
+              <tr
+                key={lead.id}
+                style={{ "--i": Math.min(i, 10) } as React.CSSProperties}
+                className="border-b border-slate-50 transition-colors last:border-0 hover:bg-slate-50/60"
+              >
                 {canAssign && (
                   <td className="px-4 py-3">
                     <input

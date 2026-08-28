@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -31,6 +32,7 @@ export function AppShell({
   canCall: boolean;
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -66,7 +68,13 @@ export function AppShell({
         />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar name={name} role={role} onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
-          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">{children}</main>
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+            {/* Keyed on the route so each navigation replays a short fade-rise —
+                just enough continuity to signal "new page", never a wait. */}
+            <div key={pathname} className="motion-page">
+              {children}
+            </div>
+          </main>
         </div>
       </div>
       <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />

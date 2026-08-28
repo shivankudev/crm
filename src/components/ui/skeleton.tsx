@@ -1,8 +1,8 @@
 import clsx from "clsx";
 
-/** A single pulsing placeholder block — compose these into page-shaped skeletons. */
+/** A single shimmering placeholder block — compose these into page-shaped skeletons. */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={clsx("animate-pulse rounded bg-slate-200/70", className)} />;
+  return <div className={clsx("skeleton rounded bg-slate-200/70", className)} />;
 }
 
 /** Skeleton matching the StatRail used on Dashboard/Telecalling/Reports headers. */

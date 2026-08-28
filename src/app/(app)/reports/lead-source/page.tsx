@@ -12,7 +12,11 @@ export default async function LeadSourceReportPage() {
       <p className="mt-1 text-sm text-slate-500">Volume and won-count per acquisition source</p>
 
       <div className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
-        <BarList rows={rows.map((r) => ({ label: r.sourceName, value: r.count, sublabel: `(${r.won} won)` }))} />
+        <BarList
+          rows={rows.map((r) => ({ label: r.sourceName, value: r.count, secondaryValue: r.won }))}
+          secondaryLabel="Won"
+          totalLabel="All leads"
+        />
       </div>
     </div>
   );

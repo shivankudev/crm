@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import clsx from "clsx";
 import { useRouter } from "next/navigation";
 import { Clock3, Package, MapPin, History, ArrowRight, PartyPopper, Search, X } from "lucide-react";
 import { StatusBadge } from "@/components/leads/status-badge";
@@ -246,7 +247,7 @@ export function TelecallingWorkspace({
 
         <div className="mt-5">{statsRow}</div>
 
-        <div className="mt-6 rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
+        <div className="motion-rise mt-6 rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
           <PartyPopper className="mx-auto text-brand-500" size={28} strokeWidth={1.75} />
           <p className="mt-3 text-sm font-semibold text-slate-900">You&apos;re all caught up</p>
           <p className="mt-1 text-xs text-slate-500">
@@ -302,7 +303,7 @@ export function TelecallingWorkspace({
         )}
 
         {search.trim().length >= 2 && (
-          <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+          <div className="motion-fade absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
             {matches.items.length === 0 ? (
               <p className="px-3 py-2.5 text-[11px] text-slate-500">
                 {matches.isCurrent ? (
@@ -334,7 +335,16 @@ export function TelecallingWorkspace({
         )}
       </div>
 
-      <div className="mt-5 rounded-lg border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(10,11,16,0.04)]">
+      {/* Keyed on the lead so every advance replays the entrance — the one
+          authored moment in the app: the queue moving to the next call.
+          Dips while the outcome is being written so the click registers. */}
+      <div
+        key={current.lead.id}
+        className={clsx(
+          "motion-queue-card mt-6 rounded-lg border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(10,11,16,0.04)] transition duration-200",
+          submitting && "pointer-events-none scale-[0.99] opacity-60"
+        )}
+      >
         <div className="flex items-center justify-between">
           <span className={KIND_STYLES[current.kind]}>{KIND_LABELS[current.kind]}</span>
           {current.scheduledDate && (
@@ -412,7 +422,7 @@ export function TelecallingWorkspace({
                 key={r.id}
                 disabled={submitting}
                 onClick={() => logOutcome(r)}
-                className={`rounded-lg border px-3 py-2 text-xs font-semibold shadow-sm transition disabled:opacity-50 ${
+                className={`rounded-lg border px-3 py-2 text-xs font-semibold shadow-sm transition duration-150 active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 motion-reduce:active:scale-100 ${
                   OUTCOME_STYLES[r.name] ?? DEFAULT_OUTCOME_STYLE
                 }`}
               >

@@ -83,7 +83,13 @@ export function StatCard({ label, value, accent = "mute", href, hint, size = "md
 
   if (href) {
     return (
-      <Link href={href} className={clsx(className, "transition hover:opacity-70")}>
+      <Link
+        href={href}
+        className={clsx(
+          className,
+          "rounded-md transition-colors duration-150 hover:bg-slate-50 focus-visible:bg-slate-50"
+        )}
+      >
         {content}
       </Link>
     );

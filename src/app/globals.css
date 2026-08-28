@@ -125,3 +125,106 @@ body {
   background-color: #d4d4d8;
   border-radius: 9999px;
 }
+
+/* ------------------------------------------------------------------ */
+/* MOTION                                                              */
+/*                                                                    */
+/* Operate-mode motion: it explains a state change or acknowledges an  */
+/* action, it never decorates. The one authored moment is the         */
+/* telecalling queue advancing to the next lead (see                  */
+/* telecalling-workspace.tsx). Everything else is the smallest move    */
+/* that makes cause and effect legible. All opacity/transform only;    */
+/* under prefers-reduced-motion every entrance collapses to a short    */
+/* fade and nothing translates.                                        */
+/* ------------------------------------------------------------------ */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes queue-card-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+@keyframes drop-settle {
+  0% { transform: scale(0.985); }
+  55% { transform: scale(1.012); }
+  100% { transform: scale(1); }
+}
+@keyframes skeleton-sweep {
+  from { background-position: 180% 0; }
+  to { background-position: -180% 0; }
+}
+
+/* Confident deceleration from an already-composed layout. */
+.motion-page {
+  animation: fade-rise 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.motion-rise {
+  animation: fade-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.motion-fade {
+  animation: fade-in 0.24s ease-out both;
+}
+.motion-pop {
+  animation: pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.motion-queue-card {
+  animation: queue-card-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.motion-settle {
+  animation: drop-settle 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Staggered list entrance. The call site sets --i per child (and caps it,
+   so a 400-row table still finishes its entrance in under ~350ms). */
+.motion-stagger > * {
+  animation: fade-rise 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 26ms);
+}
+
+.skeleton {
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in srgb, #e2e8f0 55%, transparent) 32%,
+    color-mix(in srgb, #f1f5f9 92%, transparent) 50%,
+    color-mix(in srgb, #e2e8f0 55%, transparent) 68%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Keep the meaning (something arrived / is loading), drop the movement. */
+  .motion-page,
+  .motion-rise,
+  .motion-pop,
+  .motion-queue-card,
+  .motion-stagger > * {
+    animation: fade-in 0.18s ease both;
+    animation-delay: 0ms !important;
+  }
+  .motion-settle {
+    animation: none;
+  }
+  .skeleton {
+    animation: none;
+    background-position: 50% 0;
+  }
+}

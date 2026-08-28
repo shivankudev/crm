@@ -67,8 +67,8 @@ export function CreateLeadModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+    <div className="motion-fade fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
+      <div className="motion-pop w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
         <h2 className="text-base font-semibold text-slate-900">New lead</h2>
 
         {duplicate ? (

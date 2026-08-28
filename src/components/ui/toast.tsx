@@ -6,7 +6,10 @@ import { CheckCircle2, XCircle, AlertTriangle, Info, X } from "lucide-react";
 import clsx from "clsx";
 
 type ToastKind = "success" | "error" | "warning" | "info";
-type Toast = { id: number; kind: ToastKind; message: string };
+type Toast = { id: number; kind: ToastKind; message: string; leaving?: boolean };
+
+// One place so the fade-out duration and the unmount timeout can't drift apart.
+const EXIT_MS = 200;
 
 const ICONS: Record<ToastKind, typeof CheckCircle2> = {
   success: CheckCircle2,
@@ -47,9 +50,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setMounted(true);
   }, []);
 
-  const dismiss = useCallback((id: number) => {
+  const remove = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  // Flag the toast as leaving so it plays the exit animation, then drop it
+  // from the tree once that animation has run.
+  const dismiss = useCallback(
+    (id: number) => {
+      setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
+      setTimeout(() => remove(id), EXIT_MS);
+    },
+    [remove]
+  );
 
   const push = useCallback(
     (kind: ToastKind, message: string) => {
@@ -81,8 +94,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               return (
                 <div
                   key={t.id}
+                  style={{ animationDuration: t.leaving ? `${EXIT_MS}ms` : undefined }}
                   className={clsx(
                     "pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-lg border px-3.5 py-3 text-sm shadow-lg",
+                    t.leaving
+                      ? "motion-safe:animate-[toast-out_200ms_ease-in_forwards]"
+                      : "motion-safe:animate-[toast-in_260ms_cubic-bezier(0.16,1,0.3,1)_both]",
                     STYLES[t.kind]
                   )}
                 >

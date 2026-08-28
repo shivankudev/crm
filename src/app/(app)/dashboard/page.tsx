@@ -43,13 +43,17 @@ export default async function DashboardPage() {
             href="/telecalling"
             className={
               hasWorkNow
-                ? "flex items-center gap-2 rounded bg-brand-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700"
-                : "flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                ? "group flex items-center gap-2 rounded bg-brand-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition duration-150 hover:bg-brand-700 active:scale-[0.98] motion-reduce:active:scale-100"
+                : "group flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition duration-150 hover:bg-slate-50 active:scale-[0.98] motion-reduce:active:scale-100"
             }
           >
             <PhoneCall size={15} strokeWidth={2.25} />
             {hasWorkNow ? "Start calling" : "Open telecalling"}
-            <ArrowRight size={15} strokeWidth={2.25} />
+            <ArrowRight
+              size={15}
+              strokeWidth={2.25}
+              className="transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none"
+            />
           </Link>
         )}
       </div>
@@ -58,7 +62,7 @@ export default async function DashboardPage() {
           named after: a live figure per column, one hairline strip, no
           icon-square cards. This is the surface's first viewport thesis. */}
       {calling && (
-        <div className="mt-6">
+        <div className="mt-8">
           <p className="mb-2.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase">Today&apos;s calling</p>
           <StatRail>
             <StatCard label="Due today" value={calling.dueToday} accent="brand" />
@@ -76,7 +80,7 @@ export default async function DashboardPage() {
           {calling.overdue > 0 && (
             <Link
               href="/followups/overdue"
-              className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-chip-neg/25 bg-chip-neg/5 px-4 py-3 text-sm transition hover:bg-chip-neg/10"
+              className="group mt-3 flex items-center justify-between gap-3 rounded-lg border border-chip-neg/25 bg-chip-neg/5 px-4 py-3 text-sm transition duration-150 hover:bg-chip-neg/10"
             >
               <span className="flex items-center gap-2.5 text-slate-700">
                 <AlarmClockOff size={15} className="shrink-0 text-chip-neg" />
@@ -85,7 +89,10 @@ export default async function DashboardPage() {
                   connected and are waiting on you — pick these up first.
                 </span>
               </span>
-              <ArrowRight size={15} className="shrink-0 text-slate-300" />
+              <ArrowRight
+                size={15}
+                className="shrink-0 text-slate-300 transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none"
+              />
             </Link>
           )}
 
@@ -126,7 +133,7 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      <div className="mt-6">
+      <div className="mt-10">
         <p className="mb-2.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase">Overview</p>
         <StatRail className="max-w-md">
           <StatCard label="Leads in your view" value={leads.total} accent="brand" href="/leads" />

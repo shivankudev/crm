@@ -119,7 +119,7 @@ export function KanbanBoard({
   return (
     <div>
       {error && (
-        <div className="mb-3 flex items-center justify-between rounded border border-chip-neg/25 bg-chip-neg/5 px-3.5 py-2.5 text-sm text-chip-neg">
+        <div className="motion-fade mb-3 flex items-center justify-between rounded border border-chip-neg/25 bg-chip-neg/5 px-3.5 py-2.5 text-sm text-chip-neg">
           {error}
           <button onClick={() => setError(null)} className="text-xs font-medium hover:underline">
             Dismiss
@@ -143,12 +143,12 @@ export function KanbanBoard({
             />
           ))}
         </div>
-        <DragOverlay>{activeLead ? <KanbanCard lead={activeLead} disabled /> : null}</DragOverlay>
+        <DragOverlay>{activeLead ? <KanbanCard lead={activeLead} disabled overlay /> : null}</DragOverlay>
       </DndContext>
 
       {pendingLostDrop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+        <div className="motion-fade fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[1px]">
+          <div className="motion-pop w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
             <h3 className="text-base font-semibold text-slate-900">Why was this lead lost?</h3>
             <p className="mt-1 text-sm text-slate-500">A reason is required before {pendingLostDrop.lead.name} moves to Lost.</p>
             <select

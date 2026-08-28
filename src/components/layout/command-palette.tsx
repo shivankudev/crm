@@ -98,9 +98,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-start justify-center bg-slate-900/40 pt-[12vh] backdrop-blur-[1px]" onClick={() => setOpen(false)}>
+    <div
+      className="motion-fade fixed inset-0 z-[200] flex items-start justify-center bg-slate-900/40 pt-[12vh] backdrop-blur-[1px]"
+      onClick={() => setOpen(false)}
+    >
       <div
-        className="w-full max-w-lg overflow-hidden rounded-lg bg-white shadow-2xl"
+        className="motion-pop w-full max-w-lg overflow-hidden rounded-lg bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2.5 border-b border-slate-100 px-4 py-3.5">

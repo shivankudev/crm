@@ -30,8 +30,9 @@ type ButtonOwnProps = {
 /**
  * The one button component every surface in the app should reach for —
  * primary/secondary/ghost/destructive cover the whole hierarchy so no two
- * pages invent their own competing button style. `primary` is the
- * scorecard direction's one gold "live" fill, dark ink text for contrast.
+ * pages invent their own competing button style. `primary` is the single
+ * blue accent fill (white text); it is the only thing on a page allowed to
+ * carry that colour at full strength.
  */
 export function Button({
   variant = "secondary",
@@ -44,7 +45,7 @@ export function Button({
   ...rest
 }: ButtonOwnProps & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const classes = clsx(
-    "inline-flex shrink-0 items-center justify-center gap-1.5 rounded font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
+    "inline-flex shrink-0 items-center justify-center gap-1.5 rounded font-medium transition duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100 motion-reduce:active:scale-100",
     VARIANTS[variant],
     SIZES[size],
     className
