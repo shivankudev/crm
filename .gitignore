@@ -54,3 +54,6 @@ next-env.d.ts
 
 # unattended update log
 /logs
+
+# design-hook scratch cache — rewritten on every edit, no value in history
+.impeccable/hook.cache.json
