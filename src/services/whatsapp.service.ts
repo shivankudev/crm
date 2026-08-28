@@ -112,7 +112,7 @@ export async function getQrForUser(actor: CurrentUser) {
   try {
     const qr = await getOpenWAQr(session.openwaSessionId);
     await upsertWhatsAppSession(actor.id, { openwaSessionId: session.openwaSessionId, status: qr.status });
-    return { qrCode: qr.qrCode, status: qr.status };
+    return { qrCode: qr.qrCode, status: qr.status, gatewayReachable: true };
   } catch (error) {
     // No QR to hand back — either already authenticated, or the engine is
     // still booting after a start/refresh. Not an error the settings page
@@ -130,8 +130,13 @@ export async function getQrForUser(actor: CurrentUser) {
           status,
           phone: live.phone,
         });
+        return { qrCode: null, status, gatewayReachable: true };
       }
-      return { qrCode: null, status };
+      // Neither call reached the gateway. Saying nothing here left the
+      // screen showing a stale "Scan to connect" above an empty space, with
+      // no hint that the problem was the gateway rather than the code — so
+      // the telecaller waits for a QR that is never coming.
+      return { qrCode: null, status, gatewayReachable: false };
     }
     throw error;
   }

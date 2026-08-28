@@ -50,6 +50,20 @@ const SETTLE_WINDOW_MS = 90000;
 
 /** QR rotates roughly every 20s; re-read often enough that what's on screen stays scannable. */
 const QR_POLL_MS = 3000;
+
+/**
+ * How long a scan code is good for, used only to drive the countdown.
+ *
+ * WhatsApp publishes no expiry and the gateway passes none on, so this is
+ * measured from the moment a new code appeared. Timing the real rotation on
+ * a live session gave 19s, 21s and 25s, so it genuinely varies and no fixed
+ * number can be exact — 22s is the middle of that. The countdown is
+ * therefore phrased as an approximation throughout, and running out is
+ * presented as harmless, because it is: the poll keeps the displayed image
+ * current within a few seconds either way, so whatever is on screen is
+ * scannable.
+ */
+const QR_LIFETIME_MS = 22000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 /**
@@ -71,6 +85,10 @@ export function WhatsAppWidget() {
    * collapsing.
    */
   const [confirmedLive, setConfirmedLive] = useState(false);
+  /** Seconds until the displayed code is replaced; null when no code is showing. */
+  const [qrSecondsLeft, setQrSecondsLeft] = useState<number | null>(null);
+  /** False when the CRM could not reach the WhatsApp gateway at all. */
+  const [gatewayReachable, setGatewayReachable] = useState(true);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,6 +96,8 @@ export function WhatsAppWidget() {
   const lastStatusRef = useRef<string | null>(null);
   /** When the session first reported live, so the settling window can end. */
   const liveSinceRef = useRef<number | null>(null);
+  /** When the code currently on screen first appeared — the countdown's origin. */
+  const qrSeenAtRef = useRef<number | null>(null);
   /**
    * Re-arms the heartbeat at whatever cadence now applies. Held in a ref
    * because the moment the cadence needs to change — the QR poll seeing
@@ -85,6 +105,24 @@ export function WhatsAppWidget() {
    * heartbeat itself.
    */
   const rearmHeartbeatRef = useRef<(() => void) | null>(null);
+
+  /**
+   * Swaps in a new scan code and restarts its countdown. Routed through one
+   * function so the timer can never end up measuring a code other than the
+   * one actually on screen.
+   */
+  const applyQrCode = useCallback((next: string | null) => {
+    setQrCode((prev) => {
+      if (prev === next) return prev;
+      qrSeenAtRef.current = next ? Date.now() : null;
+      return next;
+    });
+    // Seeded here rather than in the ticker's effect: writing state
+    // synchronously in an effect body causes a cascading render, and doing
+    // it at the swap also means the countdown never briefly shows a stale
+    // number from the previous code.
+    setQrSecondsLeft(next ? Math.round(QR_LIFETIME_MS / 1000) : null);
+  }, []);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -162,7 +200,8 @@ export function WhatsAppWidget() {
       const data = await res.json();
       // Only swap the image when the code actually changed, so a QR that
       // hasn't rotated yet doesn't visibly flicker on every poll.
-      setQrCode((prev) => (prev === data.qrCode ? prev : data.qrCode));
+      applyQrCode(data.qrCode ?? null);
+      setGatewayReachable(data.gatewayReachable !== false);
       recordStatus(data.status);
       if (!shouldPoll(data.status)) {
         stopPolling();
@@ -174,7 +213,7 @@ export function WhatsAppWidget() {
         rearmHeartbeatRef.current?.();
       }
     }, QR_POLL_MS);
-  }, [recordStatus, stopPolling]);
+  }, [applyQrCode, recordStatus, stopPolling]);
 
   /**
    * Liveness check that keeps running even while the device is happily
@@ -253,6 +292,17 @@ export function WhatsAppWidget() {
     };
   }, [startPolling, startHeartbeat, stopPolling, stopHeartbeat]);
 
+  // Ticks once a second while a code is displayed. Keyed on qrCode so a
+  // rotation restarts it cleanly, and torn down the moment the code goes.
+  useEffect(() => {
+    if (!qrCode) return;
+    const id = setInterval(() => {
+      const seenAt = qrSeenAtRef.current ?? Date.now();
+      setQrSecondsLeft(Math.max(0, Math.ceil((QR_LIFETIME_MS - (Date.now() - seenAt)) / 1000)));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [qrCode]);
+
   async function connect() {
     setBusy(true);
     const res = await fetch("/api/v1/whatsapp/session", { method: "POST" }).catch(() => null);
@@ -262,7 +312,7 @@ export function WhatsAppWidget() {
       toast.error(data.error ?? "Failed to start WhatsApp connection");
       return;
     }
-    setQrCode(data.qrCode);
+    applyQrCode(data.qrCode ?? null);
     recordStatus(data.status);
     if (shouldPoll(data.status)) startPolling();
     startHeartbeat();
@@ -277,7 +327,7 @@ export function WhatsAppWidget() {
       toast.error(data.error ?? "Failed to refresh QR code");
       return;
     }
-    setQrCode(data.qrCode);
+    applyQrCode(data.qrCode ?? null);
     recordStatus(data.status);
     if (shouldPoll(data.status)) startPolling();
     // Restarting a session used to leave the watch un-armed if the page had
@@ -297,7 +347,7 @@ export function WhatsAppWidget() {
       return;
     }
     stopHeartbeat();
-    setQrCode(null);
+    applyQrCode(null);
     // Deliberate: no "disconnected" warning for a logout they just asked for.
     lastStatusRef.current = data.session.status;
     liveSinceRef.current = null;
@@ -358,7 +408,17 @@ export function WhatsAppWidget() {
         </div>
       </div>
 
-      {!statusIsLive && session && !qrCode && (
+      {!statusIsLive && session && !qrCode && !gatewayReachable && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Can&apos;t reach the WhatsApp service, so no code can be shown. This is the CRM&apos;s own
+            gateway, not your phone — ask whoever runs the server to check it.
+          </span>
+        </div>
+      )}
+
+      {!statusIsLive && session && !qrCode && gatewayReachable && (
         <div className="border-chip-neg/25 bg-chip-neg/5 text-chip-neg mt-3 flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>
@@ -379,7 +439,27 @@ export function WhatsAppWidget() {
             className="rounded-lg border border-slate-200"
           />
           <p className="text-xs text-slate-500">Open WhatsApp on your phone → Linked Devices → Link a Device</p>
-          <p className="text-xs text-slate-400">This code refreshes on its own — always scan whatever is showing.</p>
+
+          {/* Counts down to the next rotation. Approximate by nature — see
+              QR_LIFETIME_MS — so it is phrased as "about", and once it runs
+              out it says what is happening rather than sitting on zero. */}
+          <div className="w-full max-w-[200px]">
+            <div className="h-1 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${
+                  (qrSecondsLeft ?? 0) <= 5 ? "bg-amber-400" : "bg-brand-500"
+                }`}
+                style={{ width: `${Math.min(100, ((qrSecondsLeft ?? 0) / (QR_LIFETIME_MS / 1000)) * 100)}%` }}
+              />
+            </div>
+            <p className="mt-1.5 text-center text-[11px] text-slate-400">
+              {qrSecondsLeft === null
+                ? "This code refreshes on its own."
+                : qrSecondsLeft > 0
+                  ? `New code in about ${qrSecondsLeft}s — scanning now is fine`
+                  : "Refreshing any moment — the code on screen still works"}
+            </p>
+          </div>
         </div>
       )}
     </Card>
