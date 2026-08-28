@@ -57,8 +57,15 @@ const SETTLE_WINDOW_MS = 90000;
  * this to 1.5s for a tighter countdown put four of them at 168/min — and a
  * throttled poll is far worse than an imprecise timer, because the code
  * stops refreshing altogether.
+ *
+ * The per-minute ceiling is not the binding one, though. The same gateway
+ * also allows only 1000 requests an HOUR, and 3s polling is 1200/hour — so
+ * a single QR screen left open ran out of budget after about fifty minutes
+ * and every poll after that was refused, which looks exactly like a frozen
+ * code. 5s is 720/hour, inside the hourly allowance, and still notices a
+ * rotation well within the life of a code.
  */
-const QR_POLL_MS = 3000;
+const QR_POLL_MS = 5000;
 
 
 /**
@@ -85,9 +92,16 @@ const QR_LIFETIME_MS = 20000;
  * serving whatever it generated last — a session found in this state had
  * been showing the same code for nineteen hours. Nothing distinguishes that
  * from a live code except that it never rotates, so the only honest signal
- * is elapsed time. Generous enough not to fire on a slow rotation.
+ * is elapsed time.
+ *
+ * 45s, not a multiple of the lifetime. Measured against the live gateway, the
+ * gaps between codes fall into two clear groups: rotations arrive 2.6s to 30s
+ * apart, and backoff waits arrive at 59.7s to 59.9s. Three lifetimes put the
+ * threshold at 60s — right on top of the second group, which is exactly why
+ * the same session sometimes recovered and sometimes sat dead. 45s is above
+ * every rotation observed and below every backoff wait.
  */
-const QR_STALE_AFTER_MS = 3 * QR_LIFETIME_MS;
+const QR_STALE_AFTER_MS = 45000;
 
 /**
  * Caption refresh rate. Only the wording depends on this now — the bar is
@@ -109,6 +123,22 @@ const QR_POLL_MAX_BACKOFF_MS = 15000;
 
 /** Consecutive failures before the screen admits it is struggling. */
 const QR_FAILURES_BEFORE_WARNING = 4;
+
+/**
+ * How many times the widget will silently restart the session to recover a
+ * dead code before handing the problem to the person at the keyboard.
+ *
+ * The gateway treats an unscanned code expiring exactly like a network drop:
+ * every expiry burns a reconnect attempt, and the wait before the next code
+ * doubles — 1s, 2s, 4s, on up to a 60s cap. That counter only resets after
+ * five minutes of healthy connection, which cannot happen while nobody has
+ * scanned yet, so a QR screen left sitting gets slower and slower until the
+ * code on it is dead for a minute at a time. Restarting the session is what
+ * the Refresh QR button already does and it clears that counter; doing it
+ * automatically is the difference between a telecaller waiting and a
+ * telecaller scanning.
+ */
+const QR_AUTO_REVIVE_LIMIT = 3;
 
 /**
  * Per-telecaller WhatsApp connection card — "every telecaller gets its
@@ -143,6 +173,10 @@ export function WhatsAppWidget() {
   const [throttled, setThrottled] = useState(false);
   /** True when the code has repeatedly failed to refresh, so the screen can say so. */
   const [pollFailing, setPollFailing] = useState(false);
+  /** True while a dead code is being replaced without the user asking. */
+  const [autoReviving, setAutoReviving] = useState(false);
+  /** True once the automatic restarts are used up and only a tap will do. */
+  const [autoReviveSpent, setAutoReviveSpent] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -154,6 +188,13 @@ export function WhatsAppWidget() {
   const qrSeenAtRef = useRef<number | null>(null);
   /** The code currently displayed, so a rotation can be told from a repeat poll. */
   const qrCodeRef = useRef<string | null>(null);
+  /** Live view of `throttled` for the countdown tick, which must not re-run on it. */
+  const throttledRef = useRef(false);
+  /** Consecutive automatic restarts, so a wedged gateway cannot be hammered. */
+  const autoReviveCountRef = useRef(0);
+  /** Set while an automatic restart is in flight, so the code it produces is
+   *  not mistaken for the gateway having recovered on its own. */
+  const revivedRef = useRef(false);
   /** The meter itself, animated directly rather than through React. */
   const barRef = useRef<HTMLDivElement | null>(null);
   /**
@@ -182,6 +223,14 @@ export function WhatsAppWidget() {
     if (qrCodeRef.current === next) return;
     qrCodeRef.current = next;
     qrSeenAtRef.current = next ? Date.now() : null;
+    // Only a code the gateway produced unprompted proves it is healthy again.
+    // One we induced must not refill the budget, or a session that dies
+    // immediately after every restart would restart for ever.
+    if (next && !revivedRef.current) {
+      autoReviveCountRef.current = 0;
+      setAutoReviveSpent(false);
+    }
+    revivedRef.current = false;
     setQrCode(next);
     setQrMsLeft(next ? QR_LIFETIME_MS : null);
     setQrStale(false);
@@ -264,6 +313,7 @@ export function WhatsAppWidget() {
           // A throttled poll carries no code — applying it would blank a
           // perfectly good one on screen and restart the countdown.
           setThrottled(data.throttled === true);
+          throttledRef.current = data.throttled === true;
           if (!data.throttled) applyQrCode(data.qrCode ?? null);
           setGatewayReachable(data.gatewayReachable !== false);
           recordStatus(data.status);
@@ -330,6 +380,31 @@ export function WhatsAppWidget() {
     heartbeatRef.current = setTimeout(tick, nextDelay());
   }, [recordStatus, startPolling, stopHeartbeat]);
 
+  /**
+   * Restarts the session to shake loose a fresh code, without a toast and
+   * without the user having asked. Same endpoint the Refresh QR button uses;
+   * the difference is only that nobody had to notice the code was dead.
+   */
+  const reviveQr = useCallback(async () => {
+    autoReviveCountRef.current += 1;
+    revivedRef.current = true;
+    setAutoReviving(true);
+    const res = await fetch("/api/v1/whatsapp/session/refresh", { method: "POST" }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
+    setAutoReviving(false);
+
+    if (!res || !res.ok) {
+      // A restart that will not even start is past self-healing; stop
+      // spending the budget silently and let the screen say so.
+      revivedRef.current = false;
+      setAutoReviveSpent(true);
+      return;
+    }
+    applyQrCode(data.qrCode ?? null);
+    recordStatus(data.status);
+    if (autoReviveCountRef.current >= QR_AUTO_REVIVE_LIMIT) setAutoReviveSpent(true);
+  }, [applyQrCode, recordStatus]);
+
   useEffect(() => {
     let cancelled = false;
     fetch("/api/v1/whatsapp/session")
@@ -371,10 +446,20 @@ export function WhatsAppWidget() {
       const age = Date.now() - seenAt;
       setQrMsLeft(Math.max(0, QR_LIFETIME_MS - age));
       // A code that has not rotated in three lifetimes is not late, it is dead.
-      if (age > QR_STALE_AFTER_MS) setQrStale(true);
+      if (age > QR_STALE_AFTER_MS) {
+        setQrStale(true);
+        // Recover it rather than display a dead code and wait to be rescued:
+        // this is the state a telecaller reports as "the QR is stuck", and
+        // from here it clears itself in about a second.
+        // Not while throttled: the restart would be refused anyway, and the
+        // request itself comes out of the very budget that is exhausted.
+        if (autoReviveCountRef.current < QR_AUTO_REVIVE_LIMIT && !revivedRef.current && !throttledRef.current) {
+          void reviveQr();
+        }
+      }
     }, QR_TICK_MS);
     return () => clearInterval(id);
-  }, [qrCode]);
+  }, [qrCode, reviveQr]);
 
   /**
    * Drains the meter with one CSS transition per code, rather than by
@@ -552,12 +637,19 @@ export function WhatsAppWidget() {
         </p>
       )}
 
-      {qrCode && !statusIsLive && qrStale && (
+      {qrCode && !statusIsLive && qrStale && !autoReviveSpent && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+          <RotateCcw size={14} className={`mt-0.5 shrink-0 ${autoReviving ? "animate-spin" : ""}`} />
+          <span>This code stopped refreshing — fetching a working one.</span>
+        </div>
+      )}
+
+      {qrCode && !statusIsLive && qrStale && autoReviveSpent && (
         <div className="border-chip-neg/25 bg-chip-neg/5 text-chip-neg mt-3 flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>
-            This code has expired — WhatsApp stopped refreshing it, so scanning it will not work. Tap{" "}
-            <strong>Refresh QR</strong> for a working one.
+            This code has expired and restarting the session did not bring it back, so scanning it will not
+            work. Tap <strong>Refresh QR</strong>, and if that fails the WhatsApp gateway needs attention.
           </span>
         </div>
       )}
