@@ -1,5 +1,10 @@
-# Windows batch files must keep CRLF endings wherever they are checked out.
+# Order matters: later patterns win, so the catch-all goes first and the
+# Windows-specific overrides follow it.
+
+# Everything is LF so the Linux containers see what the Mac wrote.
+* text=auto eol=lf
+
+# Batch files are the exception — Windows needs CRLF, or `goto` labels can
+# fail to resolve on some builds.
 *.bat text eol=crlf
 *.cmd text eol=crlf
-# Everything else stays LF so the Linux containers see what the Mac wrote.
-* text=auto eol=lf
