@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -73,6 +73,22 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
 
+  /**
+   * The nav entry that best matches the current URL.
+   *
+   * A plain prefix test lit up every ancestor: /settings/users matched both
+   * "Users & Permissions" and "Settings", so two rows appeared selected at
+   * once. Prefix matching still has to stay, though — /leads/<id> has no nav
+   * entry of its own and should keep "Leads" lit — so the rule is the
+   * LONGEST matching href wins, and only that one.
+   */
+  const activeHref = useMemo(() => {
+    const matches = sections
+      .flatMap((s) => s.items.map((i) => i.href))
+      .filter((href) => pathname === href || pathname.startsWith(`${href}/`));
+    return matches.sort((a, b) => b.length - a.length)[0] ?? null;
+  }, [pathname, sections]);
+
   // Close the mobile drawer automatically whenever navigation happens —
   // covers every nav Link without wiring an onClick on each one.
   useEffect(() => {
@@ -127,7 +143,7 @@ export function Sidebar({
               </p>
               <div className="space-y-0.5">
                 {section.items.map((item) => {
-                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  const active = item.href === activeHref;
                   const Icon = ICONS[item.icon];
 
                   if (!item.available) {
