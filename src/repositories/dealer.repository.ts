@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { canonicalizePhone } from "@/lib/phone";
 import type { Prisma } from "@prisma/client";
 
 // Dealer has a plain `createdById` scalar, no `createdBy` relation field
@@ -92,7 +93,11 @@ export async function listDealers({ where, search, page, pageSize }: DealerListF
   // AND, not spread — same reasoning as listLeads: `where` may carry an
   // `OR` (or the `id: "__no_access__"` sentinel) that a second key from
   // the search clause could otherwise silently overwrite.
-  const searchDigits = search?.replace(/\D/g, "");
+  // Canonicalised, not merely stripped of punctuation. An incoming call
+  // shows "+91 95200 44032", and digits alone give "919520044032", which
+  // never matches a number stored as "9520044032" — so searching the number
+  // that just rang found nothing, which is precisely when it is needed.
+  const searchDigits = search ? canonicalizePhone(search) : undefined;
   const finalWhere: Prisma.DealerWhereInput = {
     AND: [
       where,

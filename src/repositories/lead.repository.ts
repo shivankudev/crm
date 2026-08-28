@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { canonicalizePhone } from "@/lib/phone";
 import type { Prisma } from "@prisma/client";
 
 const LEAD_INCLUDE = {
@@ -115,7 +116,11 @@ export async function listLeads({ where, search, page, pageSize }: LeadListFilte
   // visibility, see getLeadVisibilityWhere) that a second `OR` key from
   // the search clause would silently overwrite instead of narrow —
   // quietly turning "my team's leads matching X" into "any lead matching X".
-  const searchDigits = search?.replace(/\D/g, "");
+  // Canonicalised, not merely stripped of punctuation. An incoming call
+  // shows "+91 95200 44032", and digits alone give "919520044032", which
+  // never matches a number stored as "9520044032" — so searching the number
+  // that just rang found nothing, which is precisely when it is needed.
+  const searchDigits = search ? canonicalizePhone(search) : undefined;
   const finalWhere: Prisma.LeadWhereInput = {
     AND: [
       where,
