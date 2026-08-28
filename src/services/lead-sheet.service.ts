@@ -8,6 +8,7 @@ import {
   updateLeadSheet,
 } from "@/repositories/lead-sheet.repository";
 import { createLead, DuplicateLeadError } from "@/services/lead.service";
+import { findExistingPhoneSet } from "@/repositories/lead.repository";
 import { fetchSheetGrid, extractSpreadsheetId, GoogleSheetsError } from "@/lib/google-sheets";
 import { canonicalizePhone } from "@/lib/phone";
 import { can, ForbiddenError } from "@/lib/rbac/can";
@@ -16,6 +17,16 @@ import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/auth/current-user";
 
 export class LeadSheetError extends Error {}
+
+/**
+ * New leads created per run.
+ *
+ * A first sync against an established intake sheet can face thousands of
+ * rows at once — each one a transaction, a duplicate check and an activity
+ * write. Capping means a big sheet drains over successive polls rather than
+ * tying the worker up in one long batch.
+ */
+const MAX_ROWS_PER_SYNC = 300;
 
 export const ACCESS_MODES = ["SERVICE_ACCOUNT", "PUBLISHED_CSV"] as const;
 export type AccessMode = (typeof ACCESS_MODES)[number];
@@ -149,9 +160,18 @@ function headerIndex(header: string[]): Record<string, number> {
   return map;
 }
 
+/**
+ * Header text -> field. Matched after lowercasing and stripping spaces,
+ * underscores and dashes, so "Phone 1", "phone_1" and "PHONE1" are one key.
+ *
+ * "phone1"/"phone2" are here because that is what real intake sheets
+ * actually use — a sheet headed "Phone 1" silently failed every row as
+ * "missing phone" before, which looks identical to an empty sheet.
+ */
 const FIELD_ALIASES: Record<string, string[]> = {
   name: ["name", "fullname", "leadname", "customername"],
-  phone: ["phone", "phonenumber", "mobile", "mobilenumber", "contact", "contactnumber"],
+  phone: ["phone", "phone1", "phonenumber", "mobile", "mobile1", "mobilenumber", "contact", "contactnumber"],
+  phone2: ["phone2", "altphone", "alternatephone", "secondaryphone", "mobile2"],
   email: ["email", "emailaddress"],
   interestedProduct: ["interestedproduct", "product", "model"],
   temperature: ["temperature", "temp"],
@@ -202,16 +222,44 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
   }
 
   const idx = headerIndex(grid[0] ?? []);
-  if (idx["name"] === undefined || idx["phone"] === undefined) {
-    const message = 'The sheet needs a header row with at least "name" and "phone" columns.';
+  // Resolved through the aliases, not by literal key: a sheet headed
+  // "Phone 1" is perfectly valid and was being rejected outright here even
+  // though pick() knew how to read it.
+  const hasField = (field: string) => (FIELD_ALIASES[field] ?? [field]).some((a) => idx[a] !== undefined);
+  if (!hasField("name") || !hasField("phone")) {
+    const message =
+      'The sheet needs a header row with a name column and a phone column (e.g. "Name" and "Phone 1").';
     await updateLeadSheet(sheet.id, { lastPolledAt: new Date(), lastError: message });
     return { ...base, error: message };
   }
 
+  // Every row is considered every time, and what has already been taken in
+  // is decided by the phone number rather than by how far down the sheet we
+  // got last time.
+  //
+  // A positional cursor looked cheaper but was quietly wrong here: a Google
+  // Form appends at the first free row, which on a sheet padded with blank
+  // formula rows is ABOVE where a previous run finished — so those leads sat
+  // behind the cursor and would never have been imported. Matching on the
+  // number is also immune to rows being sorted, inserted or deleted.
   const dataRows = grid.slice(1);
-  const startAt = Math.min(sheet.lastRowImported, dataRows.length);
-  const fresh = dataRows.slice(startAt);
-  base.rowsRead = fresh.length;
+
+  const candidates = dataRows
+    .map((row) => ({ row, name: pick(row, idx, "name"), phone: canonicalizePhone(pick(row, idx, "phone")) }))
+    .filter((c) => c.name && c.phone.replace(/\D/g, "").length >= 6);
+
+  const alreadyHave = await findExistingPhoneSet(candidates.map((c) => c.phone));
+  const seenThisRun = new Set<string>();
+  const newOnes = candidates.filter((c) => {
+    if (alreadyHave.has(c.phone) || seenThisRun.has(c.phone)) return false;
+    seenThisRun.add(c.phone);
+    return true;
+  });
+
+  base.skippedInvalid = dataRows.length - candidates.length;
+  base.skippedDuplicate = candidates.length - newOnes.length;
+  const fresh = newOnes.slice(0, MAX_ROWS_PER_SYNC);
+  base.rowsRead = dataRows.length;
 
   const assignees = sheet.assignees.filter((a) => a.user.active);
   if (assignees.length === 0 && fresh.length > 0) {
@@ -223,17 +271,16 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
   let rotation = sheet.nextAssigneeIndex;
   let created = 0;
   let skippedDuplicate = 0;
-  let skippedInvalid = 0;
   let failed = 0;
 
-  for (const row of fresh) {
-    const name = pick(row, idx, "name");
-    const phone = canonicalizePhone(pick(row, idx, "phone"));
-
-    if (!name || phone.replace(/\D/g, "").length < 6) {
-      skippedInvalid++;
-      continue;
-    }
+  for (const { row, name, phone } of fresh) {
+    // Only kept when it is a different, dialable number — intake sheets
+    // very often repeat the primary in the second column.
+    const secondaryRaw = canonicalizePhone(pick(row, idx, "phone2"));
+    const phone2 =
+      secondaryRaw && secondaryRaw !== phone && secondaryRaw.replace(/\D/g, "").length >= 6
+        ? secondaryRaw
+        : undefined;
 
     // Round-robin: each row goes to the next telecaller working this sheet,
     // so a shared sheet is split evenly rather than landing on one person.
@@ -250,6 +297,7 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
         {
           name: name.slice(0, 150),
           phone,
+          phone2,
           email: pick(row, idx, "email") || undefined,
           interestedProduct: pick(row, idx, "interestedProduct") || undefined,
           temperature,
@@ -273,6 +321,8 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
   }
 
   await updateLeadSheet(sheet.id, {
+    // Kept for the settings page's "read to row N" line only; selection no
+    // longer depends on it.
     lastRowImported: dataRows.length,
     nextAssigneeIndex: rotation,
     lastPolledAt: new Date(),
@@ -280,7 +330,14 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
     ...(created > 0 ? { lastImportedAt: new Date(), totalImported: { increment: created } } : {}),
   });
 
-  return { ...base, created, skippedDuplicate, skippedInvalid, failed };
+  return {
+    ...base,
+    created,
+    // Rows rejected mid-import (a race with a manual entry) add to the
+    // count computed up front.
+    skippedDuplicate: base.skippedDuplicate + skippedDuplicate,
+    failed,
+  };
 }
 
 export async function syncLeadSheetForAdmin(actor: CurrentUser, sheetId: string) {

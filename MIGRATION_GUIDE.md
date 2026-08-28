@@ -253,7 +253,8 @@ minutes, and again whenever this PC starts up. Set up under
 or change it.
 
 Each sheet needs a header row, and at minimum a **name** and a **phone**
-column. `email`, `interested product` and `temperature` are used if present
+column — `Phone 1`, `Mobile` and `Contact Number` all count as the phone,
+and `Phone 2` is picked up as the alternate number. `email`, `interested product` and `temperature` are used if present
 and ignored if not. Rows missing a name or a usable phone number are skipped
 and counted, not silently dropped.
 
@@ -285,16 +286,28 @@ and is read through a Google service account. One-time setup:
    address (it ends `.iam.gserviceaccount.com`, and the CRM shows it on the
    settings page) → give it **Viewer** → Send.
 
-**Published link.** No credentials at all: in the sheet, **File → Share →
-Publish to web → CSV**, and paste the link. Be aware that a published sheet
-can be read by anyone who has the link, without signing in — including the
-customer names and phone numbers in it. Fine for a scratch sheet, not for
-real lead data.
+**Link-shared sheet.** No credentials and no setup:
+
+1. Open the sheet, press **Share**, and under **General access** choose
+   **Anyone with the link** → **Viewer**.
+2. Copy the link straight out of the browser's address bar — the ordinary
+   `.../spreadsheets/d/<id>/edit?gid=<tab>` one. There is nothing to
+   publish; the CRM works out the export address itself, and reads the tab
+   the link points at.
+
+Be aware that a link-shared sheet can be read by anyone who has that link,
+without signing in — including the customer names and phone numbers in it.
+Fine for an intake sheet, but a private sheet is safer for anything more.
 
 ### What it will and won't do
 
-- It only ever reads *forward*. Editing a row that was already imported does
-  not re-import or update it — the sheet is an inbox, not a mirror.
+- It looks at every row each time and decides what is new by **phone
+  number**, not by position. Rows added in the middle (which is where a
+  Google Form drops them on a sheet padded with blank rows), sorted, or
+  moved are all picked up correctly.
+- Editing a row that was already imported does not update the lead — the
+  sheet is an inbox, not a mirror.
+- Blank padding rows are skipped and counted, not treated as errors.
 - A phone number already in the CRM is skipped as a duplicate and counted.
 - Imported leads get their follow-up scheduled as normal but **no welcome
   WhatsApp**, deliberately: a sheet can drop a hundred rows at once, and one

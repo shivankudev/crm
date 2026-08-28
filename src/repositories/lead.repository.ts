@@ -19,6 +19,19 @@ export async function generateLeadCode(): Promise<string> {
   return `GATTI-${n.toString().padStart(6, "0")}`;
 }
 
+/**
+ * Which of these numbers are already on a live lead — one query for a whole
+ * batch, so a sheet sync can filter its rows without a lookup each.
+ */
+export async function findExistingPhoneSet(phones: string[]): Promise<Set<string>> {
+  if (phones.length === 0) return new Set();
+  const rows = await prisma.lead.findMany({
+    where: { phoneNormalized: { in: [...new Set(phones)] }, deletedAt: null },
+    select: { phoneNormalized: true },
+  });
+  return new Set(rows.map((r) => r.phoneNormalized).filter((p): p is string => p !== null));
+}
+
 export function findLeadByPhoneNormalized(phoneNormalized: string) {
   return prisma.lead.findFirst({
     where: { phoneNormalized, deletedAt: null },

@@ -127,7 +127,7 @@ export function LeadSheetsEditor({
           className={`${inputClass} w-auto shrink-0`}
         >
           <option value="SERVICE_ACCOUNT">Private sheet</option>
-          <option value="PUBLISHED_CSV">Published link</option>
+          <option value="PUBLISHED_CSV">Link-shared sheet</option>
         </select>
         <Button type="submit" variant="primary" size="sm" icon={Plus} disabled={creating || !name.trim()}>
           Add
@@ -326,7 +326,7 @@ function SheetCard({
           {(
             [
               { key: "SERVICE_ACCOUNT", icon: Lock, label: "Private sheet", hint: "shared with the service account" },
-              { key: "PUBLISHED_CSV", icon: Globe, label: "Published link", hint: "anyone with the link can read it" },
+              { key: "PUBLISHED_CSV", icon: Globe, label: "Link-shared sheet", hint: "no setup — anyone with the link can read it" },
             ] as const
           ).map((opt) => (
             <button
@@ -404,12 +404,17 @@ function SheetCard({
               setCsvUrl(e.target.value);
               mark();
             }}
-            placeholder="Published CSV link (File → Share → Publish to web → CSV)"
-            aria-label="Published CSV link"
+            placeholder="Paste the sheet link from your browser"
+            aria-label="Google Sheet link"
             className={`${inputClass} bg-white`}
           />
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+            Paste the normal link from the sheet&apos;s address bar — no publishing needed. In the sheet, set{" "}
+            <strong>Share → General access → Anyone with the link → Viewer</strong>. The tab you had open is the
+            one that gets read.
+          </p>
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-            A published sheet can be read by anyone who has the link, without signing in — including the
+            A link-shared sheet can be read by anyone who has that link, without signing in — including the
             customer names and phone numbers in it. Prefer a private sheet for real lead data.
           </p>
         </div>

@@ -157,17 +157,28 @@ async function readViaServiceAccount(spreadsheetId: string, sheetName?: string |
 }
 
 async function readViaPublishedCsv(csvUrl: string): Promise<SheetGrid> {
-  const res = await fetch(csvUrl, { redirect: "follow", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-  if (!res.ok) {
+  const res = await fetch(toCsvExportUrl(csvUrl), {
+    redirect: "follow",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (res.status === 401 || res.status === 403 || res.status === 404) {
     throw new GoogleSheetsError(
-      `That published link returned ${res.status}. Re-publish the sheet (File → Share → Publish to web → CSV).`
+      `Google refused that sheet (${res.status}). Open it → Share → General access → "Anyone with the link" → Viewer.`
     );
+  }
+  if (!res.ok) {
+    throw new GoogleSheetsError(`That sheet link returned ${res.status}.`);
   }
   const text = await res.text();
   // A sheet that was un-published serves the Google sign-in page, which is
   // HTML — without this the admin would see "0 rows" and no reason why.
   if (/^\s*<(!doctype|html)/i.test(text)) {
-    throw new GoogleSheetsError("That link returned a web page, not CSV — the sheet is probably no longer published.");
+    // Google answers an unshared sheet with its sign-in page rather than an
+    // error status, so without this the admin would see "0 rows" and no reason.
+    throw new GoogleSheetsError(
+      "Google returned a sign-in page instead of the sheet. Open the sheet → Share → General access → " +
+        '"Anyone with the link" → Viewer, then try again.'
+    );
   }
   return parseCsv(text);
 }
@@ -193,4 +204,33 @@ export function fetchSheetGrid(config: {
 export function extractSpreadsheetId(input: string): string {
   const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return (match ? match[1] : input).trim();
+}
+
+/**
+ * Turns whatever the admin pasted into something that returns CSV.
+ *
+ * The link people actually have is the one from their browser bar —
+ * ".../spreadsheets/d/<id>/edit?gid=<tab>" — not a published-to-web
+ * address. Google will serve any sheet as CSV from its own export
+ * endpoint without credentials, provided the sheet is link-shared, so
+ * requiring an admin to go and "publish to web" first was a step invented
+ * by this app rather than by Google. Derive it instead.
+ *
+ * Already-published "/pub?output=csv" links and plain CSV URLs are passed
+ * through untouched, so anything set up the old way keeps working.
+ */
+export function toCsvExportUrl(input: string): string {
+  const raw = input.trim();
+  if (!raw) return raw;
+
+  // A published-to-web link, or something that is already a CSV endpoint.
+  if (/\/pub\b/.test(raw) || /output=csv|format=csv|tqx=out:csv/.test(raw)) return raw;
+
+  const id = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1];
+  if (!id) return raw; // not a Sheets URL — leave it be and let the fetch report
+
+  // The tab: "?gid=" or the "#gid=" fragment the browser leaves on the end.
+  const tab = raw.match(/[?&#]gid=(\d+)/)?.[1];
+  const base = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv`;
+  return tab ? `${base}&gid=${tab}` : base;
 }
