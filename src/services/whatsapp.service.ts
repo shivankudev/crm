@@ -112,7 +112,7 @@ export async function getQrForUser(actor: CurrentUser) {
   try {
     const qr = await getOpenWAQr(session.openwaSessionId);
     await upsertWhatsAppSession(actor.id, { openwaSessionId: session.openwaSessionId, status: qr.status });
-    return { qrCode: qr.qrCode, status: qr.status, gatewayReachable: true };
+    return { qrCode: qr.qrCode, status: qr.status, gatewayReachable: true, throttled: false };
   } catch (error) {
     // No QR to hand back — either already authenticated, or the engine is
     // still booting after a start/refresh. Not an error the settings page
@@ -122,6 +122,13 @@ export async function getQrForUser(actor: CurrentUser) {
     // "initializing", which would tell the user to scan a QR that doesn't
     // exist yet and never resolve.
     if (error instanceof OpenWAError) {
+      // Being rate-limited is not the same as having no code: the session may
+      // be perfectly healthy and we simply asked too often. Reported
+      // separately so the screen can say "busy, retrying" instead of
+      // implying the link is broken.
+      if (isOpenWAThrottled(error)) {
+        return { qrCode: null, status: session.status, gatewayReachable: true, throttled: true };
+      }
       const live = await getOpenWASession(session.openwaSessionId).catch(() => null);
       const status = live?.status ?? session.status;
       if (live) {
@@ -130,16 +137,21 @@ export async function getQrForUser(actor: CurrentUser) {
           status,
           phone: live.phone,
         });
-        return { qrCode: null, status, gatewayReachable: true };
+        return { qrCode: null, status, gatewayReachable: true, throttled: false };
       }
       // Neither call reached the gateway. Saying nothing here left the
       // screen showing a stale "Scan to connect" above an empty space, with
       // no hint that the problem was the gateway rather than the code — so
       // the telecaller waits for a QR that is never coming.
-      return { qrCode: null, status, gatewayReachable: false };
+      return { qrCode: null, status, gatewayReachable: false, throttled: false };
     }
     throw error;
   }
+}
+
+/** True when OpenWA turned us away for making too many requests. */
+export function isOpenWAThrottled(error: unknown) {
+  return error instanceof OpenWAError && /429|too many requests/i.test(error.message);
 }
 
 /** Full session restart — the reliable way to force a brand-new QR rather than trust the old one is still valid. */

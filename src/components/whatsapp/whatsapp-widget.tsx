@@ -51,13 +51,15 @@ const SETTLE_WINDOW_MS = 90000;
 /**
  * How often to re-read the code.
  *
- * This is also what bounds the countdown's accuracy: the timer starts when
- * the browser first SEES a new code, so a slow poll makes it start late and
- * over-report by that much. At 3s the error was up to a third of the
- * interval; 1.5s halves it, against a gateway on the same machine where the
- * request costs nothing worth counting.
+ * Bounded by the gateway, not by taste: OpenWA's default limiter allows 100
+ * requests a minute per key. At 3s each open QR screen costs 20/min, so
+ * four telecallers scanning at once sit just under the ceiling. Halving
+ * this to 1.5s for a tighter countdown put four of them at 168/min — and a
+ * throttled poll is far worse than an imprecise timer, because the code
+ * stops refreshing altogether.
  */
-const QR_POLL_MS = 1500;
+const QR_POLL_MS = 3000;
+
 
 /**
  * How long a scan code is good for, used only to drive the countdown.
@@ -75,6 +77,17 @@ const QR_POLL_MS = 1500;
  * it promise seconds that no longer exist.
  */
 const QR_LIFETIME_MS = 20000;
+
+/**
+ * How long a code may sit unchanged before it is treated as dead.
+ *
+ * WhatsApp gives up on an unscanned code, and the gateway then keeps
+ * serving whatever it generated last — a session found in this state had
+ * been showing the same code for nineteen hours. Nothing distinguishes that
+ * from a live code except that it never rotates, so the only honest signal
+ * is elapsed time. Generous enough not to fire on a slow rotation.
+ */
+const QR_STALE_AFTER_MS = 3 * QR_LIFETIME_MS;
 
 /**
  * Caption refresh rate. Only the wording depends on this now — the bar is
@@ -111,6 +124,10 @@ export function WhatsAppWidget() {
   const [qrMsLeft, setQrMsLeft] = useState<number | null>(null);
   /** False when the CRM could not reach the WhatsApp gateway at all. */
   const [gatewayReachable, setGatewayReachable] = useState(true);
+  /** True once the displayed code has gone too long without rotating to be trusted. */
+  const [qrStale, setQrStale] = useState(false);
+  /** True while the gateway is turning our polls away for being too frequent. */
+  const [throttled, setThrottled] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,6 +169,7 @@ export function WhatsAppWidget() {
     qrSeenAtRef.current = next ? Date.now() : null;
     setQrCode(next);
     setQrMsLeft(next ? QR_LIFETIME_MS : null);
+    setQrStale(false);
   }, []);
 
   const stopPolling = useCallback(() => {
@@ -230,7 +248,10 @@ export function WhatsAppWidget() {
       const data = await res.json();
       // Only swap the image when the code actually changed, so a QR that
       // hasn't rotated yet doesn't visibly flicker on every poll.
-      applyQrCode(data.qrCode ?? null);
+      // A throttled poll carries no code — applying it would blank a
+      // perfectly good one on screen and restart the countdown.
+      setThrottled(data.throttled === true);
+      if (!data.throttled) applyQrCode(data.qrCode ?? null);
       setGatewayReachable(data.gatewayReachable !== false);
       recordStatus(data.status);
       if (!shouldPoll(data.status)) {
@@ -328,7 +349,10 @@ export function WhatsAppWidget() {
     if (!qrCode) return;
     const id = setInterval(() => {
       const seenAt = qrSeenAtRef.current ?? Date.now();
-      setQrMsLeft(Math.max(0, QR_LIFETIME_MS - (Date.now() - seenAt)));
+      const age = Date.now() - seenAt;
+      setQrMsLeft(Math.max(0, QR_LIFETIME_MS - age));
+      // A code that has not rotated in three lifetimes is not late, it is dead.
+      if (age > QR_STALE_AFTER_MS) setQrStale(true);
     }, QR_TICK_MS);
     return () => clearInterval(id);
   }, [qrCode]);
@@ -496,22 +520,40 @@ export function WhatsAppWidget() {
         </div>
       )}
 
+      {throttled && !statusIsLive && (
+        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+          The WhatsApp service is busy — still trying. The code below stays valid meanwhile.
+        </p>
+      )}
+
+      {qrCode && !statusIsLive && qrStale && (
+        <div className="border-chip-neg/25 bg-chip-neg/5 text-chip-neg mt-3 flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>
+            This code has expired — WhatsApp stopped refreshing it, so scanning it will not work. Tap{" "}
+            <strong>Refresh QR</strong> for a working one.
+          </span>
+        </div>
+      )}
+
       {qrCode && !statusIsLive && (
         <div className="mt-4 flex flex-col items-center gap-2 border-t border-slate-100 pt-4">
+          {/* Dimmed once expired, so nobody keeps pointing a phone at a code
+              that cannot work. */}
           {/* eslint-disable-next-line @next/next/no-img-element -- a data: URI, not a static/remote asset Next's image pipeline handles */}
           <img
             src={qrCode}
             alt="WhatsApp QR code"
             width={200}
             height={200}
-            className="rounded-lg border border-slate-200"
+            className={`rounded-lg border border-slate-200 ${qrStale ? "opacity-25 grayscale" : ""}`}
           />
           <p className="text-xs text-slate-500">Open WhatsApp on your phone → Linked Devices → Link a Device</p>
 
           {/* Counts down to the next rotation. Approximate by nature — see
               QR_LIFETIME_MS — so it is phrased as "about", and once it runs
               out it says what is happening rather than sitting on zero. */}
-          <div className="w-full max-w-[200px]">
+          <div className={`w-full max-w-[200px] ${qrStale ? "hidden" : ""}`}>
             <div className="h-1 overflow-hidden rounded-full bg-slate-100">
               {/* Width is driven imperatively by the effect above — deliberately
                   absent here so a re-render cannot interrupt the animation.
