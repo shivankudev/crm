@@ -48,8 +48,16 @@ const HEARTBEAT_SETTLING_MS = 4000;
 const HEARTBEAT_STEADY_MS = 30000;
 const SETTLE_WINDOW_MS = 90000;
 
-/** QR rotates roughly every 20s; re-read often enough that what's on screen stays scannable. */
-const QR_POLL_MS = 3000;
+/**
+ * How often to re-read the code.
+ *
+ * This is also what bounds the countdown's accuracy: the timer starts when
+ * the browser first SEES a new code, so a slow poll makes it start late and
+ * over-report by that much. At 3s the error was up to a third of the
+ * interval; 1.5s halves it, against a gateway on the same machine where the
+ * request costs nothing worth counting.
+ */
+const QR_POLL_MS = 1500;
 
 /**
  * How long a scan code is good for, used only to drive the countdown.
@@ -68,8 +76,12 @@ const QR_POLL_MS = 3000;
  */
 const QR_LIFETIME_MS = 20000;
 
-/** Countdown refresh rate. Short enough that the bar reads as continuous motion. */
-const QR_TICK_MS = 200;
+/**
+ * Caption refresh rate. Only the wording depends on this now — the bar is
+ * animated by CSS — so a whole second is plenty and it keeps re-renders to
+ * one per second instead of five.
+ */
+const QR_TICK_MS = 1000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 /**
@@ -110,6 +122,8 @@ export function WhatsAppWidget() {
   const qrSeenAtRef = useRef<number | null>(null);
   /** The code currently displayed, so a rotation can be told from a repeat poll. */
   const qrCodeRef = useRef<string | null>(null);
+  /** The meter itself, animated directly rather than through React. */
+  const barRef = useRef<HTMLDivElement | null>(null);
   /**
    * Re-arms the heartbeat at whatever cadence now applies. Held in a ref
    * because the moment the cadence needs to change — the QR poll seeing
@@ -310,8 +324,6 @@ export function WhatsAppWidget() {
 
   // Ticks once a second while a code is displayed. Keyed on qrCode so a
   // rotation restarts it cleanly, and torn down the moment the code goes.
-  // Ticks well under a second so the bar glides rather than stepping; the
-  // caption is derived from the same value and still changes once a second.
   useEffect(() => {
     if (!qrCode) return;
     const id = setInterval(() => {
@@ -319,6 +331,40 @@ export function WhatsAppWidget() {
       setQrMsLeft(Math.max(0, QR_LIFETIME_MS - (Date.now() - seenAt)));
     }, QR_TICK_MS);
     return () => clearInterval(id);
+  }, [qrCode]);
+
+  /**
+   * Drains the meter with one CSS transition per code, rather than by
+   * re-rendering a width.
+   *
+   * Setting the width from a timer moved it in visible ~1% steps five times
+   * a second. Handing the whole remaining duration to the browser lets it
+   * interpolate at native frame rate, so the motion is genuinely continuous
+   * and costs no re-renders at all. The width is therefore set here and
+   * never in JSX — leaving it in the markup would have React overwrite the
+   * animation on the next render.
+   */
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+
+    if (!qrCode) {
+      el.style.transition = "none";
+      el.style.width = "0%";
+      return;
+    }
+
+    const seenAt = qrSeenAtRef.current ?? Date.now();
+    const remaining = Math.max(0, QR_LIFETIME_MS - (Date.now() - seenAt));
+
+    // Jump to where this code actually stands, with no animation...
+    el.style.transition = "none";
+    el.style.width = `${(remaining / QR_LIFETIME_MS) * 100}%`;
+    // ...force the browser to take that as the start of the transition...
+    void el.offsetWidth;
+    // ...then let it run down to empty over whatever time is left.
+    el.style.transition = `width ${remaining}ms linear`;
+    el.style.width = "0%";
   }, [qrCode]);
 
   async function connect() {
@@ -467,12 +513,15 @@ export function WhatsAppWidget() {
               out it says what is happening rather than sitting on zero. */}
           <div className="w-full max-w-[200px]">
             <div className="h-1 overflow-hidden rounded-full bg-slate-100">
-              {/* No CSS transition: the value already updates every 200ms, and
-                  a transition longer than the tick makes the bar chase a
-                  target it never reaches, which reads as lag. */}
+              {/* Width is driven imperatively by the effect above — deliberately
+                  absent here so a re-render cannot interrupt the animation.
+                  Only the colour comes from React. */}
               <div
-                className={`h-full rounded-full ${qrSecondsLeft !== null && qrSecondsLeft <= 5 ? "bg-amber-400" : "bg-brand-500"}`}
-                style={{ width: `${qrMsLeft === null ? 0 : Math.min(100, (qrMsLeft / QR_LIFETIME_MS) * 100)}%` }}
+                ref={barRef}
+                className={`h-full rounded-full transition-colors duration-500 ${
+                  qrSecondsLeft !== null && qrSecondsLeft <= 5 ? "bg-amber-400" : "bg-brand-500"
+                }`}
+                style={{ width: 0 }}
               />
             </div>
             <p className="mt-1.5 text-center text-[11px] text-slate-400">
