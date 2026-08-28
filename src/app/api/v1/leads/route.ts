@@ -17,6 +17,15 @@ export async function GET(req: NextRequest) {
       assignedUserId: params.get("owner") ?? undefined,
       temperature: params.get("temperature") ?? undefined,
       search: params.get("q") ?? undefined,
+      // Same drill-down filters the /leads page uses, so the API and the
+      // screen can never disagree about what "added today" means.
+      createdToday: params.get("added") === "today",
+      createdById: params.get("by") ?? undefined,
+      sheetSourceId: params.get("sheet") ?? undefined,
+      origin:
+        params.get("origin") === "sheet" || params.get("origin") === "manual"
+          ? (params.get("origin") as "sheet" | "manual")
+          : undefined,
       ...parsePagination(params),
     });
 

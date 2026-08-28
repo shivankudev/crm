@@ -23,6 +23,11 @@ export default async function LeadsPage({
       assignedUserId: sp.owner,
       temperature: sp.temperature,
       search: sp.q,
+      // Drill-down from the dashboard's "added today" breakdown.
+      createdToday: sp.added === "today",
+      createdById: sp.by,
+      sheetSourceId: sp.sheet,
+      origin: sp.origin === "sheet" || sp.origin === "manual" ? sp.origin : undefined,
       page,
       pageSize: 25,
     }),

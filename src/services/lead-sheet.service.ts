@@ -14,7 +14,6 @@ import { canonicalizePhone } from "@/lib/phone";
 import { can, ForbiddenError } from "@/lib/rbac/can";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { prisma } from "@/lib/prisma";
-import { getLeadVisibilityWhere } from "@/lib/rbac/scope";
 import type { CurrentUser } from "@/lib/auth/current-user";
 
 export class LeadSheetError extends Error {}
@@ -136,32 +135,6 @@ export async function deleteLeadSheetForAdmin(actor: CurrentUser, id: string) {
   const existing = await findLeadSheet(id);
   if (!existing) throw new LeadSheetError("That sheet no longer exists");
   await deleteLeadSheet(id);
-}
-
-/**
- * How many leads the linked sheets brought in today, scoped to what this
- * user can see — an admin gets the whole day's intake, a telecaller only
- * the ones that were dealt to them.
- *
- * "Today" is the same Asia/Kolkata day the rest of the app displays, not
- * the server's UTC day, so the figure does not reset mid-afternoon on a
- * container running UTC.
- */
-export async function countLeadsPulledToday(actor: CurrentUser) {
-  const visibility = await getLeadVisibilityWhere(actor);
-  return prisma.lead.count({
-    where: {
-      AND: [visibility, { deletedAt: null, sheetSourceId: { not: null }, createdAt: { gte: startOfTodayIST() } }],
-    },
-  });
-}
-
-/** Midnight in Asia/Kolkata, as a UTC instant. */
-function startOfTodayIST(): Date {
-  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-  const nowIst = new Date(Date.now() + IST_OFFSET_MS);
-  const midnightIst = Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate());
-  return new Date(midnightIst - IST_OFFSET_MS);
 }
 
 // --- Syncing ----------------------------------------------------------

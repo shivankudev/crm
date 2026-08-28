@@ -6,7 +6,7 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { listLeadsForUser } from "@/services/lead.service";
 import { listDealersForUser } from "@/services/dealer.service";
 import { getTelecallerDailyStats, getOwnConnectRates } from "@/services/telecalling.service";
-import { countLeadsPulledToday } from "@/services/lead-sheet.service";
+import { getTodaysLeadIntake } from "@/services/lead.service";
 import { StatCard, StatRail } from "@/components/ui/stat-card";
 import { Card } from "@/components/ui/card";
 import { WhatsAppWidget } from "@/components/whatsapp/whatsapp-widget";
@@ -17,12 +17,12 @@ export default async function DashboardPage() {
   const canCall = can(user, PERMISSIONS.LEADS_CALL_LOG);
   const canSeeDealers = can(user, PERMISSIONS.DEALERS_MANAGE) || can(user, PERMISSIONS.DEALERS_VIEW_FOLLOWUP);
 
-  const [leads, dealers, calling, connectRates, pulledToday] = await Promise.all([
+  const [leads, dealers, calling, connectRates, intake] = await Promise.all([
     listLeadsForUser(user, { page: 1, pageSize: 1 }),
     canSeeDealers ? listDealersForUser(user, { page: 1, pageSize: 1 }) : Promise.resolve({ total: 0 }),
     canCall ? getTelecallerDailyStats(user) : Promise.resolve(null),
     canCall ? getOwnConnectRates(user) : Promise.resolve(null),
-    countLeadsPulledToday(user),
+    getTodaysLeadIntake(user),
   ]);
 
   const hasWorkNow = calling ? calling.pending + calling.overdue > 0 : false;
@@ -131,12 +131,14 @@ export default async function DashboardPage() {
         <StatRail className="max-w-md">
           <StatCard label="Leads in your view" value={leads.total} accent="brand" href="/leads" />
           {/* Scoped like every other figure here: an admin sees the day's
-              whole intake, a telecaller only the rows dealt to them. */}
+              whole intake, a telecaller only the rows dealt to them. Links
+              to the breakdown rather than the raw list — after seeing a
+              number the next question is where it came from. */}
           <StatCard
-            label="Pulled from sheets today"
-            value={pulledToday}
-            accent={pulledToday > 0 ? "pos" : "mute"}
-            href="/leads"
+            label="New leads today"
+            value={intake.total}
+            accent={intake.total > 0 ? "pos" : "mute"}
+            href="/leads/today"
           />
           {canSeeDealers && <StatCard label="Dealers in your view" value={dealers.total} accent="brand" href="/dealers" />}
         </StatRail>

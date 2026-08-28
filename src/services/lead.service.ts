@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/prisma";
 import {
   createLead as createLeadRow,
   createLeadCheckingDuplicate as createLeadWithDuplicateCheck,
@@ -61,6 +62,12 @@ export async function listLeadsForUser(
     assignedUserId?: string;
     temperature?: string;
     search?: string;
+    /** Drill-down from the dashboard's "added today" figure. */
+    createdToday?: boolean;
+    createdById?: string;
+    sheetSourceId?: string;
+    /** "any" = from any linked sheet; "none" = entered by hand. */
+    origin?: "sheet" | "manual";
     page?: number;
     pageSize?: number;
   }
@@ -68,6 +75,11 @@ export async function listLeadsForUser(
   const visibility = await getLeadVisibilityWhere(user);
   const where: LeadListFilters["where"] = {
     ...visibility,
+    ...(filters.createdToday ? { createdAt: { gte: startOfTodayIST() } } : {}),
+    ...(filters.createdById ? { createdById: filters.createdById } : {}),
+    ...(filters.sheetSourceId ? { sheetSourceId: filters.sheetSourceId } : {}),
+    ...(filters.origin === "sheet" ? { sheetSourceId: { not: null } } : {}),
+    ...(filters.origin === "manual" ? { sheetSourceId: null } : {}),
     ...(filters.statusId ? { statusId: filters.statusId } : {}),
     ...(filters.sourceId ? { sourceId: filters.sourceId } : {}),
     ...(filters.stateId ? { stateId: filters.stateId } : {}),
@@ -333,4 +345,81 @@ export async function changeLeadStatus(id: string, input: ChangeLeadStatusInput,
   }
 
   return updated;
+}
+
+
+/** Midnight in Asia/Kolkata as a UTC instant — the business day the UI shows. */
+export function startOfTodayIST(): Date {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const nowIst = new Date(Date.now() + IST_OFFSET_MS);
+  return new Date(Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate()) - IST_OFFSET_MS);
+}
+
+export type TodaysIntake = {
+  total: number;
+  fromSheets: { id: string; name: string; count: number }[];
+  manual: { id: string; name: string; count: number }[];
+};
+
+/**
+ * Where today's new leads came from, split into the two ways a lead can
+ * reach this CRM: pulled from a linked Google Sheet, or typed in by a
+ * person. The manual side is grouped by who entered it, which is the
+ * question an admin actually has ("who added these?").
+ *
+ * Scoped by the caller's own lead visibility, so the figures always agree
+ * with what they'd see if they opened the list itself.
+ */
+export async function getTodaysLeadIntake(user: CurrentUser): Promise<TodaysIntake> {
+  const visibility = await getLeadVisibilityWhere(user);
+  const where = { AND: [visibility, { deletedAt: null, createdAt: { gte: startOfTodayIST() } }] };
+
+  const [total, bySheet, byCreator] = await Promise.all([
+    prisma.lead.count({ where }),
+    prisma.lead.groupBy({
+      by: ["sheetSourceId"],
+      where: { AND: [where, { sheetSourceId: { not: null } }] },
+      _count: { _all: true },
+    }),
+    prisma.lead.groupBy({
+      by: ["createdById"],
+      where: { AND: [where, { sheetSourceId: null }] },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const sheetIds = bySheet.map((r) => r.sheetSourceId).filter((id): id is string => id !== null);
+  const creatorIds = byCreator.map((r) => r.createdById).filter((id): id is string => id !== null);
+
+  const [sheets, users] = await Promise.all([
+    sheetIds.length
+      ? prisma.leadSheetSource.findMany({ where: { id: { in: sheetIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    creatorIds.length
+      ? prisma.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+  ]);
+
+  const sheetName = new Map(sheets.map((s) => [s.id, s.name]));
+  const userName = new Map(users.map((u) => [u.id, u.name]));
+
+  return {
+    total,
+    fromSheets: bySheet
+      .filter((r) => r.sheetSourceId)
+      .map((r) => ({
+        id: r.sheetSourceId as string,
+        // A sheet can be deleted while its leads remain, so never assume a name.
+        name: sheetName.get(r.sheetSourceId as string) ?? "Removed sheet",
+        count: r._count._all,
+      }))
+      .sort((a, b) => b.count - a.count),
+    manual: byCreator
+      .map((r) => ({
+        id: r.createdById ?? "",
+        name: r.createdById ? (userName.get(r.createdById) ?? "Removed user") : "Unknown",
+        count: r._count._all,
+      }))
+      .sort((a, b) => b.count - a.count),
+  };
 }
