@@ -95,7 +95,20 @@ const QR_STALE_AFTER_MS = 3 * QR_LIFETIME_MS;
  * one per second instead of five.
  */
 const QR_TICK_MS = 1000;
-const MAX_CONSECUTIVE_FAILURES = 5;
+
+/**
+ * Longest the poll may back off to after repeated failures.
+ *
+ * It used to stop outright after five failures and wait for the 30s
+ * heartbeat to notice and restart it, so a brief gateway hiccup froze the
+ * code for the best part of a minute while the countdown kept draining —
+ * indistinguishable, on screen, from a dead session. Slowing down instead
+ * of stopping means it always recovers on its own.
+ */
+const QR_POLL_MAX_BACKOFF_MS = 15000;
+
+/** Consecutive failures before the screen admits it is struggling. */
+const QR_FAILURES_BEFORE_WARNING = 4;
 
 /**
  * Per-telecaller WhatsApp connection card — "every telecaller gets its
@@ -128,8 +141,10 @@ export function WhatsAppWidget() {
   const [qrStale, setQrStale] = useState(false);
   /** True while the gateway is turning our polls away for being too frequent. */
   const [throttled, setThrottled] = useState(false);
+  /** True when the code has repeatedly failed to refresh, so the screen can say so. */
+  const [pollFailing, setPollFailing] = useState(false);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Last status ANY poll saw, so we only react to genuine transitions. */
   const lastStatusRef = useRef<string | null>(null);
@@ -174,7 +189,7 @@ export function WhatsAppWidget() {
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
-      clearInterval(pollRef.current);
+      clearTimeout(pollRef.current);
       pollRef.current = null;
     }
   }, []);
@@ -223,47 +238,51 @@ export function WhatsAppWidget() {
 
     // WhatsApp rotates the QR roughly every 20s while it waits to be
     // scanned, and OpenWA emits a fresh one on every rotation. GET /qr
-    // always returns the CURRENT one, so re-reading on this interval is
-    // what keeps the code on screen scannable instead of going stale and
-    // silently failing when the telecaller finally points their phone at
-    // it. Polling here (rather than subscribing to OpenWA's session.qr
-    // WebSocket) deliberately keeps the gateway API key server-side — the
-    // browser only ever talks to this CRM.
+    // always returns the CURRENT one, so re-reading is what keeps the code
+    // on screen scannable rather than silently stale. Polling here (rather
+    // than subscribing to OpenWA's WebSocket) deliberately keeps the
+    // gateway API key server-side — the browser only ever talks to this CRM.
     //
-    // The cap counts CONSECUTIVE failures, never total polls: someone can
-    // legitimately sit on this screen for minutes before scanning, and a
-    // total-attempt cap would freeze the QR at an expired image while
-    // still telling them to scan it.
+    // Self-rescheduling rather than a fixed interval so a failing gateway
+    // can be backed away from without ever giving up on it.
     let consecutiveFailures = 0;
 
-    pollRef.current = setInterval(async () => {
+    const tick = async () => {
       const res = await fetch("/api/v1/whatsapp/session/qr").catch(() => null);
+      let delay = QR_POLL_MS;
 
       if (!res || !res.ok) {
-        if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) stopPolling();
-        return;
+        consecutiveFailures++;
+        setPollFailing(consecutiveFailures >= QR_FAILURES_BEFORE_WARNING);
+        // Double the wait each time, capped — never stop.
+        delay = Math.min(QR_POLL_MS * 2 ** consecutiveFailures, QR_POLL_MAX_BACKOFF_MS);
+      } else {
+        consecutiveFailures = 0;
+        setPollFailing(false);
+        const data = await res.json().catch(() => null);
+        if (data) {
+          // A throttled poll carries no code — applying it would blank a
+          // perfectly good one on screen and restart the countdown.
+          setThrottled(data.throttled === true);
+          if (!data.throttled) applyQrCode(data.qrCode ?? null);
+          setGatewayReachable(data.gatewayReachable !== false);
+          recordStatus(data.status);
+          if (!shouldPoll(data.status)) {
+            stopPolling();
+            // Hand over to the heartbeat at the cadence that now applies.
+            rearmHeartbeatRef.current?.();
+            return;
+          }
+          // Being turned away for asking too often is itself a reason to ask
+          // less often.
+          if (data.throttled) delay = QR_POLL_MAX_BACKOFF_MS;
+        }
       }
-      consecutiveFailures = 0;
 
-      const data = await res.json();
-      // Only swap the image when the code actually changed, so a QR that
-      // hasn't rotated yet doesn't visibly flicker on every poll.
-      // A throttled poll carries no code — applying it would blank a
-      // perfectly good one on screen and restart the countdown.
-      setThrottled(data.throttled === true);
-      if (!data.throttled) applyQrCode(data.qrCode ?? null);
-      setGatewayReachable(data.gatewayReachable !== false);
-      recordStatus(data.status);
-      if (!shouldPoll(data.status)) {
-        stopPolling();
-        // Hand over to the heartbeat at the cadence that now applies. The
-        // pending heartbeat was scheduled while the session was still
-        // pending, i.e. at the slow steady delay — without re-arming, a
-        // link that just went live would not be re-checked for another 30s
-        // and would sit on "Finishing link…" the whole time.
-        rearmHeartbeatRef.current?.();
-      }
-    }, QR_POLL_MS);
+      pollRef.current = setTimeout(tick, delay);
+    };
+
+    pollRef.current = setTimeout(tick, QR_POLL_MS);
   }, [applyQrCode, recordStatus, stopPolling]);
 
   /**
@@ -518,6 +537,13 @@ export function WhatsAppWidget() {
             Tap Refresh QR and scan to reconnect.
           </span>
         </div>
+      )}
+
+      {pollFailing && !statusIsLive && !throttled && (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          Having trouble refreshing the code — still retrying. If this does not clear, tap{" "}
+          <strong>Refresh QR</strong>.
+        </p>
       )}
 
       {throttled && !statusIsLive && (
