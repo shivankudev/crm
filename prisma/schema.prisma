@@ -233,6 +233,11 @@ model Lead {
   lastContactAt  DateTime?
   nextFollowupAt DateTime?
 
+  /// Set when this lead arrived from a linked Google Sheet, so imports are
+  /// countable and a lead's origin is visible rather than guessed at.
+  sheetSourceId String?
+  sheetSource   LeadSheetSource? @relation(fields: [sheetSourceId], references: [id], onDelete: SetNull)
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime? // soft delete
@@ -251,6 +256,7 @@ model Lead {
   @@index([assignedUserId])
   @@index([stateId, districtId])
   @@index([nextFollowupAt])
+  @@index([sheetSourceId, createdAt])
 }
 
 model LeadActivity {
@@ -720,8 +726,9 @@ model LeadSheetSource {
 
   assignees LeadSheetAssignee[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  importedLeads Lead[]
 
   @@index([enabled])
 }

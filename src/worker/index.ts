@@ -96,7 +96,7 @@ enqueueOverdueDetectorNow()
   .catch((err) => console.error("[worker] failed to queue startup sweep:", err));
 
 scheduleLeadSheetPollRepeatable()
-  .then(() => console.log("[worker] registered lead-sheet poll (every 10 min)"))
+  .then(() => console.log("[worker] registered lead-sheet poll (every 5 min)"))
   .catch((err) => console.error("[worker] failed to register sheet poll:", err));
 
 // Same catch-up reasoning: rows added to a sheet overnight should land as

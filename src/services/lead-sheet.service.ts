@@ -14,6 +14,7 @@ import { canonicalizePhone } from "@/lib/phone";
 import { can, ForbiddenError } from "@/lib/rbac/can";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { prisma } from "@/lib/prisma";
+import { getLeadVisibilityWhere } from "@/lib/rbac/scope";
 import type { CurrentUser } from "@/lib/auth/current-user";
 
 export class LeadSheetError extends Error {}
@@ -137,6 +138,32 @@ export async function deleteLeadSheetForAdmin(actor: CurrentUser, id: string) {
   await deleteLeadSheet(id);
 }
 
+/**
+ * How many leads the linked sheets brought in today, scoped to what this
+ * user can see — an admin gets the whole day's intake, a telecaller only
+ * the ones that were dealt to them.
+ *
+ * "Today" is the same Asia/Kolkata day the rest of the app displays, not
+ * the server's UTC day, so the figure does not reset mid-afternoon on a
+ * container running UTC.
+ */
+export async function countLeadsPulledToday(actor: CurrentUser) {
+  const visibility = await getLeadVisibilityWhere(actor);
+  return prisma.lead.count({
+    where: {
+      AND: [visibility, { deletedAt: null, sheetSourceId: { not: null }, createdAt: { gte: startOfTodayIST() } }],
+    },
+  });
+}
+
+/** Midnight in Asia/Kolkata, as a UTC instant. */
+function startOfTodayIST(): Date {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const nowIst = new Date(Date.now() + IST_OFFSET_MS);
+  const midnightIst = Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate());
+  return new Date(midnightIst - IST_OFFSET_MS);
+}
+
 // --- Syncing ----------------------------------------------------------
 
 export type SyncResult = {
@@ -148,6 +175,8 @@ export type SyncResult = {
   skippedInvalid: number;
   failed: number;
   error?: string;
+  /** Why rows failed, deduplicated — a bare count gives nobody anything to act on. */
+  failureReasons?: string[];
 };
 
 /** Header text -> the field it feeds. Matches the CSV importer's vocabulary. */
@@ -268,6 +297,7 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
     return { ...base, error: message };
   }
 
+  const failureReasons = new Set<string>();
   let rotation = sheet.nextAssigneeIndex;
   let created = 0;
   let skippedDuplicate = 0;
@@ -311,14 +341,20 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
         // Same reasoning as the CSV importer: a sheet can drop a block of
         // rows at once, and one welcome WhatsApp per row is the burst
         // pattern that gets a telecaller's number banned.
-        { sendWelcomeMessage: false }
+        { sendWelcomeMessage: false, sheetSourceId: sheet.id }
       );
       created++;
     } catch (error) {
-      if (error instanceof DuplicateLeadError) skippedDuplicate++;
-      else failed++;
+      if (error instanceof DuplicateLeadError) {
+        skippedDuplicate++;
+      } else {
+        failed++;
+        failureReasons.add(error instanceof Error ? error.message : String(error));
+      }
     }
   }
+
+  const reasons = [...failureReasons].slice(0, 3);
 
   await updateLeadSheet(sheet.id, {
     // Kept for the settings page's "read to row N" line only; selection no
@@ -326,7 +362,9 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
     lastRowImported: dataRows.length,
     nextAssigneeIndex: rotation,
     lastPolledAt: new Date(),
-    lastError: null,
+    // A run where every row failed is not a healthy run — say so on the card
+    // instead of leaving a silent zero.
+    lastError: failed > 0 ? `${failed} row(s) failed: ${reasons.join("; ")}` : null,
     ...(created > 0 ? { lastImportedAt: new Date(), totalImported: { increment: created } } : {}),
   });
 
@@ -337,6 +375,7 @@ export async function syncLeadSheet(sheetId: string, actor: CurrentUser): Promis
     // count computed up front.
     skippedDuplicate: base.skippedDuplicate + skippedDuplicate,
     failed,
+    ...(reasons.length ? { failureReasons: reasons } : {}),
   };
 }
 

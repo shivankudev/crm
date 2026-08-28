@@ -28,7 +28,7 @@ export default async function LeadSheetsSettingsPage() {
       <div className="mb-6">
         <h1 className="text-lg font-semibold tracking-tight text-slate-900">Google Sheet lead sources</h1>
         <p className="mt-1 text-xs text-slate-500">
-          New rows in a linked sheet become leads automatically, checked every ten minutes and again whenever
+          New rows in a linked sheet become leads automatically, checked every five minutes and again whenever
           this PC starts up. Each sheet goes to the telecaller (or telecallers) who work it — with more than
           one, rows are dealt out between them in turn. Only admins can set this up.
         </p>

@@ -315,6 +315,10 @@ Fine for an intake sheet, but a private sheet is safer for anything more.
 - If a sheet can't be read, the reason is shown on its card in Settings and
   the other sheets carry on regardless.
 - **Sync now** on any sheet runs the same import immediately.
+- The dashboard shows **Pulled from sheets today**, scoped like every other
+  figure there: an admin sees the day's whole intake, a telecaller only the
+  rows dealt to them. It counts by the Asia/Kolkata day, so it does not
+  reset mid-afternoon.
 
 ---
 

@@ -108,9 +108,9 @@ export function enqueueOverdueDetectorNow() {
  * overdue sweep: the office PC is switched off overnight, so anything tied
  * to a clock time would simply be missed. Ten minutes is well inside what
  * "picks up new rows automatically" needs to mean, and each poll is one
- * cheap read per sheet.
+ * cheap read per sheet plus a single bulk phone lookup.
  */
-export const LEAD_SHEET_POLL_INTERVAL_MS = 10 * 60 * 1000;
+export const LEAD_SHEET_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 export async function scheduleLeadSheetPollRepeatable() {
   return leadSheetQueue.upsertJobScheduler(

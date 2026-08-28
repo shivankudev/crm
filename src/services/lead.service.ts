@@ -96,7 +96,17 @@ export async function listLeadsForUser(
 export async function createLead(
   input: CreateLeadInput,
   actor: CurrentUser,
-  options?: { initialStatusId?: string; createdAt?: Date; sendWelcomeMessage?: boolean }
+  options?: {
+    initialStatusId?: string;
+    createdAt?: Date;
+    sendWelcomeMessage?: boolean;
+    /**
+     * Which linked sheet this lead came from. Deliberately here and not on
+     * CreateLeadInput: origin is something the importer asserts, never
+     * something an API caller gets to claim about a lead they created.
+     */
+    sheetSourceId?: string;
+  }
 ) {
   const phoneNormalized = normalizePhone(input.phone);
 
@@ -143,6 +153,7 @@ export async function createLead(
     competitor: input.competitor,
     assignedUser: { connect: { id: assignedUserId } },
     createdBy: { connect: { id: actor.id } },
+    ...(options?.sheetSourceId ? { sheetSource: { connect: { id: options.sheetSourceId } } } : {}),
   };
 
   // Duplicates are checked inside the insert's transaction rather than

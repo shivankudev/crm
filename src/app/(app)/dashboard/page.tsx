@@ -6,6 +6,7 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { listLeadsForUser } from "@/services/lead.service";
 import { listDealersForUser } from "@/services/dealer.service";
 import { getTelecallerDailyStats, getOwnConnectRates } from "@/services/telecalling.service";
+import { countLeadsPulledToday } from "@/services/lead-sheet.service";
 import { StatCard, StatRail } from "@/components/ui/stat-card";
 import { Card } from "@/components/ui/card";
 import { WhatsAppWidget } from "@/components/whatsapp/whatsapp-widget";
@@ -16,11 +17,12 @@ export default async function DashboardPage() {
   const canCall = can(user, PERMISSIONS.LEADS_CALL_LOG);
   const canSeeDealers = can(user, PERMISSIONS.DEALERS_MANAGE) || can(user, PERMISSIONS.DEALERS_VIEW_FOLLOWUP);
 
-  const [leads, dealers, calling, connectRates] = await Promise.all([
+  const [leads, dealers, calling, connectRates, pulledToday] = await Promise.all([
     listLeadsForUser(user, { page: 1, pageSize: 1 }),
     canSeeDealers ? listDealersForUser(user, { page: 1, pageSize: 1 }) : Promise.resolve({ total: 0 }),
     canCall ? getTelecallerDailyStats(user) : Promise.resolve(null),
     canCall ? getOwnConnectRates(user) : Promise.resolve(null),
+    countLeadsPulledToday(user),
   ]);
 
   const hasWorkNow = calling ? calling.pending + calling.overdue > 0 : false;
@@ -128,6 +130,14 @@ export default async function DashboardPage() {
         <p className="mb-2.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase">Overview</p>
         <StatRail className="max-w-md">
           <StatCard label="Leads in your view" value={leads.total} accent="brand" href="/leads" />
+          {/* Scoped like every other figure here: an admin sees the day's
+              whole intake, a telecaller only the rows dealt to them. */}
+          <StatCard
+            label="Pulled from sheets today"
+            value={pulledToday}
+            accent={pulledToday > 0 ? "pos" : "mute"}
+            href="/leads"
+          />
           {canSeeDealers && <StatCard label="Dealers in your view" value={dealers.total} accent="brand" href="/dealers" />}
         </StatRail>
       </div>
