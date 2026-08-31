@@ -8,6 +8,17 @@ service, so nothing here is protecting live work yet. Do the steps. The
 "treat the running system as the thing you are protecting" rules in CLAUDE.md
 begin the moment step 6 succeeds and people start logging in.
 
+## A note on the shell
+
+The commands below are written one per line because Windows PowerShell (the
+blue one, version 5) rejects `&&` as a separator — it fails with "The token
+'&&' is not a valid statement separator in this version". Run them as separate
+lines. PowerShell also needs `.\` in front of a script in the current folder,
+so it is `.\windows\update.bat`, not `windows\update.bat`.
+
+`curl` in PowerShell 5 is an alias for something else entirely; where a command
+below uses curl, type `curl.exe` so you get the real one.
+
 ## Before you start
 
 - Windows 10/11 64-bit, virtualisation enabled in the BIOS
