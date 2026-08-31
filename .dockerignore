@@ -6,3 +6,16 @@ node_modules
 !.env.example
 storage
 npm-debug.log*
+
+# Database dumps. These matter more than they look: update.bat writes a fresh
+# dump immediately before it builds, so leaving them in the context meant every
+# update invalidated the COPY layer with a file the image never uses — a
+# guaranteed full rebuild, on a context that grew with every backup ever taken.
+backups
+
+# Documentation, the Windows operator scripts, and agent tooling. None of it is
+# read during a build; all of it would otherwise bust the same layer whenever a
+# guide was edited.
+*.md
+windows
+.claude
