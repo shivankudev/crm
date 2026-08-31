@@ -18,7 +18,19 @@ right now. You are here to *operate and diagnose*, not to develop. See below.
 
 ## On the Windows mini PC
 
-Treat the running system as the thing you are protecting.
+First establish which of two situations you are in, because the rules below
+are written for the second and are wrong for the first.
+
+**Setting it up for the first time.** Nothing is running, nobody is on the
+phones, and there is nothing yet to protect. Installing Docker, cloning,
+writing `.env`, `docker compose up -d --build`, creating the first accounts —
+all of that is the job, so get on with it. `.env` is gitignored, so writing it
+leaves the tree clean. There is a step-by-step guide for this; follow it in
+order rather than improvising, since a wrong `NEXT_PUBLIC_APP_URL` or a
+`NODE_ENV` left at `development` is not obvious afterwards.
+
+**Operating it afterwards.** From the moment telecallers depend on it, treat
+the running system as the thing you are protecting.
 
 **Do:** read logs, inspect state, explain what broke, restart a wedged
 service, run `windows\update.bat` and interpret it if it fails.
