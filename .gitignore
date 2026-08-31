@@ -57,3 +57,7 @@ next-env.d.ts
 
 # design-hook scratch cache — rewritten on every edit, no value in history
 .impeccable/hook.cache.json
+
+# Written by the update scripts so the running build can report its own
+# commit at /version.txt. Generated per machine, never committed.
+public/version.txt

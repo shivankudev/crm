@@ -63,6 +63,13 @@ if errorlevel 1 (
   exit /b 1
 )
 
+
+REM Record which commit this build came from, so anyone on the network can
+REM ask the CRM its version (http://<this-pc>:3000/version.txt) instead of
+REM remoting in to run git log. Written after the pull and before the build
+REM so it lands in the Docker context. Gitignored, so it never dirties the
+REM tree and never blocks the next --ff-only pull.
+git rev-parse --short HEAD > public\version.txt
 docker compose build web worker migrate seed >> "%LOG%" 2>&1
 if errorlevel 1 (
   echo [%STAMP%] BUILD FAILED - old version still running, run rollback.bat if the site misbehaves >> "%LOG%"
