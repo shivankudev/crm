@@ -25,9 +25,9 @@ are written for the second and are wrong for the first.
 phones, and there is nothing yet to protect. Installing Docker, cloning,
 writing `.env`, `docker compose up -d --build`, creating the first accounts —
 all of that is the job, so get on with it. `.env` is gitignored, so writing it
-leaves the tree clean. There is a step-by-step guide for this; follow it in
-order rather than improvising, since a wrong `NEXT_PUBLIC_APP_URL` or a
-`NODE_ENV` left at `development` is not obvious afterwards.
+leaves the tree clean. Follow `windows/SETUP.md` in order rather than
+improvising: a wrong `NEXT_PUBLIC_APP_URL`, or a `NODE_ENV` left at
+`development`, is not obvious afterwards and nobody thinks to check it.
 
 **Operating it afterwards.** From the moment telecallers depend on it, treat
 the running system as the thing you are protecting.
