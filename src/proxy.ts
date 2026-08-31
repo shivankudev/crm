@@ -7,7 +7,13 @@ export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|api/v1/auth/login).*)"],
 };
 
-const PUBLIC_PATHS = ["/login"];
+// /version.txt is the deployed commit, written by the Windows update scripts.
+// Readable without signing in on purpose: the question it answers — "has my
+// change reached the office yet?" — is asked from another machine, often
+// before anyone has logged in, and a telecaller reading it down the phone
+// should not have to authenticate first. It reveals only a short commit hash
+// of a private repo, on a LAN-only app.
+const PUBLIC_PATHS = ["/login", "/version.txt"];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
