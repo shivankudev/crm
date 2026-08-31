@@ -51,7 +51,7 @@ if "%LOCAL%"=="%REMOTE%" (
 echo [%STAMP%] new version found, updating >> "%LOG%"
 
 if not exist backups mkdir backups
-docker compose exec -T postgres pg_dump -U gatti_crm -Fc gatti_crm > "backups\auto-%DT:~0,8%-%DT:~8,6%.dump" 2>>"%LOG%"
+docker compose exec -T postgres sh -c "pg_dump -U $POSTGRES_USER -Fc $POSTGRES_DB" > "backups\auto-%DT:~0,8%-%DT:~8,6%.dump" 2>>"%LOG%"
 if errorlevel 1 (
   echo [%STAMP%] BACKUP FAILED - refusing to update, old version still running >> "%LOG%"
   exit /b 1

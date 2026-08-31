@@ -16,7 +16,7 @@ echo  [1/5] Backing up the database first...
 if not exist backups mkdir backups
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set DT=%%I
 set STAMP=%DT:~0,8%-%DT:~8,6%
-docker compose exec -T postgres pg_dump -U gatti_crm -Fc gatti_crm > "backups\before-update-%STAMP%.dump"
+docker compose exec -T postgres sh -c "pg_dump -U $POSTGRES_USER -Fc $POSTGRES_DB" > "backups\before-update-%STAMP%.dump"
 if errorlevel 1 (
   echo.
   echo  Could not back up. Is Docker running? Nothing has been changed.
