@@ -1,0 +1,28 @@
+# Terminates HTTPS in front of the CRM. Caddy obtains and renews the
+# certificate from Let's Encrypt by itself, which is the whole reason it is
+# here rather than nginx — nobody has to remember a renewal.
+#
+# DOMAIN comes from .env. It must already point at this server's public IP
+# before the first start, or the certificate request fails and Caddy retries
+# in a loop with the site unreachable.
+{$DOMAIN} {
+	encode zstd gzip
+
+	# The app is not published on the host at all in this configuration (see
+	# docker-compose.cloud.yml) — it is reachable only across Docker's internal
+	# network, so this is the single way in.
+	reverse_proxy web:3000
+
+	# Caddy appends the address it actually accepted the connection from to
+	# X-Forwarded-For, which is what src/lib/client-ip.ts reads as the
+	# rightmost hop. Anything a client puts in that header stays to the left
+	# of it and is ignored.
+	header {
+		# Told once, remembered by the browser: never try this site over
+		# plain HTTP again.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

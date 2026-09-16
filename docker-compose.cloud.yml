@@ -1,0 +1,42 @@
+# Overlay for running the CRM on a public server. NOT used in the office.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+#
+# The office mini PC keeps using docker-compose.yml on its own and is
+# unaffected by anything in this file — no Caddy, no certificate, no domain.
+#
+# Needs Docker Compose 2.24 or newer for `!reset`.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env before starting the cloud stack}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates live here. Losing this volume means re-requesting them,
+      # and Let's Encrypt rate-limits that — back it up with the database.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+  web:
+    environment:
+      # Makes the app read the client address from X-Forwarded-For. Only safe
+      # because Caddy above is now guaranteed to have rewritten it; left off
+      # in the office, where nothing sits in front and the header would be
+      # whatever a caller chose to send.
+      TRUST_PROXY: "true"
+    # Withdraw the host port. Reaching the app must mean going through Caddy,
+    # so that a firewall mistake cannot quietly expose a plaintext login page
+    # on :3000 alongside the HTTPS one.
+    ports: !reset []
+
+volumes:
+  caddy_data:
+  caddy_config:
