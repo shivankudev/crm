@@ -151,7 +151,25 @@ services:
   #     service to >1 replica: two replicas resurrecting one session risks
   #     WhatsApp force-logging-out (or banning) that number.
   openwa:
-    image: ghcr.io/rmyndharis/openwa:latest
+    # Pinned by digest, deliberately, and this one needs explaining.
+    #
+    # :latest here does not mean "newest release" — it is an untagged build,
+    # newer than the newest tag (0.2.10 was built in June, :latest in
+    # September). Pinning to the version number would therefore have rolled
+    # the gateway back three months, which for a Baileys client is not a
+    # neutral act: it tracks WhatsApp's protocol, and a stale one eventually
+    # fails to connect at all.
+    #
+    # So the pin is the digest of a known-good current build. What it buys is
+    # that two machines install the same gateway, and that it changes only
+    # when someone changes this line — on the component the whole CRM rests
+    # on, and the one whose failures are hardest to read.
+    #
+    # The cost is that it now goes stale on purpose. Bump it roughly monthly,
+    # or when WhatsApp starts misbehaving, and watch the QR screen afterwards.
+    # Sessions live in the openwa_data volume rather than the image, so a bump
+    # costs nobody a re-scan.
+    image: ghcr.io/rmyndharis/openwa@sha256:5be5cde3a77fcfac69a18788d9bc1b03ae38c1391bc436b14619fd201011c9e9
     restart: unless-stopped
     # Chromium teardown needs longer than Docker's 10s default; killing it
     # mid-teardown can orphan a session profile (and cost a re-scan).

@@ -74,6 +74,11 @@ A session arriving cold tends to "fix" these. Don't, without asking.
 - **WhatsApp status is `ready`, never `connected`.** That is OpenWA's own
   enum. Test it with `isWhatsAppLive()` from `src/lib/whatsapp-constants.ts` —
   comparing against `"connected"` silently drops every message.
+- **The OpenWA image is pinned by digest, not `:latest`.** That long sha256 in
+  `docker-compose.yml` is not an accident and tidying it into a version tag
+  would roll the gateway back months: upstream's `:latest` is an untagged
+  build *newer* than its newest release tag. Bump it by putting a newer
+  digest there on purpose, never by reverting to a tag.
 - **OpenWA runs the Baileys engine**, deliberately. whatsapp-web.js spawned a
   Chromium per session and ate the mini PC's memory.
 - **The overdue sweep runs on an interval** (on boot, then hourly) rather than
