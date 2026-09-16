@@ -3,6 +3,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { loginSchema } from "@/lib/validation/auth";
+import { clientIp } from "@/lib/client-ip";
 import { login, AuthError, RateLimitedError } from "@/services/auth.service";
 import { sessionCookieOptions } from "@/lib/auth/session";
 
@@ -26,7 +27,7 @@ export async function loginAction(
   try {
     const headerList = await headers();
     const result = await login(parsed.data.email, parsed.data.password, {
-      ipAddress: headerList.get("x-forwarded-for") ?? undefined,
+      ipAddress: clientIp(headerList),
       userAgent: headerList.get("user-agent") ?? undefined,
     });
     token = result.token;

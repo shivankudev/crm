@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { loginSchema } from "@/lib/validation/auth";
+import { clientIp } from "@/lib/client-ip";
 import { login } from "@/services/auth.service";
 import { sessionCookieOptions } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/api-response";
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
     const { email, password } = loginSchema.parse(body);
 
     const { user, token, expiresAt } = await login(email, password, {
-      ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
+      ipAddress: clientIp(req.headers),
       userAgent: req.headers.get("user-agent") ?? undefined,
     });
 
